@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X Unfollow Helper by Redox
 // @namespace    https://x.com/amredox
-// @version      1.0.8
+// @version      1.0.9
 // @description  Paced unfollowing on X with preview, skip mutuals, whitelist, inactive filter and hourly batches.
 // @author       Redox
 // @homepageURL  https://unfollow-helper.vercel.app/
@@ -327,6 +327,41 @@
   }
 
   /* ---------- scan and preview ---------- */
+  // Batch activity check: one request returns up to 100 accounts with their latest post.
+  // If X doesn't support it, the script quietly goes back to one-by-one checks.
+  let lookupBroken = false;
+  async function lookupBatch(ids) {
+    if (lookupBroken || !ids.length) return null;
+    let res;
+    try {
+      res = await fetch(location.origin + '/i/api/1.1/users/lookup.json?include_entities=false&tweet_mode=extended&user_id=' + ids.join(','), {
+        credentials: 'include',
+        headers: {
+          authorization: 'Bearer ' + BEARER,
+          'x-csrf-token': cookie('ct0'),
+          'x-twitter-auth-type': 'OAuth2Session',
+          'x-twitter-active-user': 'yes',
+        },
+      });
+    } catch (e) { return null; }
+    if (res.status === 429) return null;
+    if (!res.ok) { lookupBroken = true; return null; }
+    let data;
+    try { data = await res.json(); } catch (e) { lookupBroken = true; return null; }
+    if (!Array.isArray(data)) { lookupBroken = true; return null; }
+    const out = {};
+    let withStatus = 0;
+    for (const u of data) {
+      const id = u && u.id_str;
+      if (!id) continue;
+      if (u.status && u.status.created_at) { out[id] = parseTw(u.status.created_at); withStatus++; }
+      else if (u.statuses_count === 0) out[id] = 0;       // never posted
+      else out[id] = undefined;                            // unclear, check one by one
+    }
+    if (data.length >= 5 && withStatus === 0) { lookupBroken = true; return null; } // X hides latest posts here
+    return out;
+  }
+
   // Spreads the checks X still allows evenly until its limit resets.
   function checkGap() {
     const rl = S.rl;
@@ -404,14 +439,29 @@
 
     if (!my.stop && o.months) {
       const cutoff = Date.now() - o.months * 30.44 * 864e5;
-      for (const u of list) {
+      const known = id => { const c = S.act[id]; return !!(c && Date.now() - c.t < ACT_DAYS * 864e5); };
+      for (let i = 0; i < list.length; i++) {
+        const u = list[i];
         if (my.stop || my.review) break;
         rollDay();
+        // Fast path: ask X about up to 100 accounts in one request.
+        if (!known(u.id) && !lookupBroken) {
+          const ids = [];
+          for (let j = i; j < list.length && ids.length < 100; j++) if (!known(list[j].id)) ids.push(list[j].id);
+          setProg({ phase: 'Checking who is inactive', sub: 'Checking ' + ids.length + ' accounts at once' });
+          const m = await lookupBatch(ids);
+          if (m) {
+            const now = Date.now();
+            for (const id in m) if (m[id] !== undefined) S.act[id] = { last: m[id], t: now };
+            pruneAct(); S.day.checks++; save();
+            await sleepUntil(Date.now() + rnd(800, 1600), my);
+          }
+        }
         let r, fresh = false;
         const c = S.act[u.id];
-        if (c && Date.now() - c.t < ACT_DAYS * 864e5) {
+        if (known(u.id)) {
           r = { last: c.last };
-          setProg({ phase: 'Checking who is inactive', sub: 'Already checked @' + u.handle + ', skipping the wait', checked: prog.checked + 1 });
+          setProg({ phase: 'Checking who is inactive', sub: 'Checked @' + u.handle, checked: prog.checked + 1 });
         } else {
           if (S.day.checks >= CFG.dailyCheckCap) { note = ' Daily activity-check limit reached, scan again tomorrow for more.'; break; }
           setStatus('Checking activity: found ' + picked.length + ' of ' + o.count + ' (checking @' + u.handle + ')');
