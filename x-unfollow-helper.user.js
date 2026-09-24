@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X Unfollow Helper by Redox
 // @namespace    https://x.com/amredox
-// @version      1.1.1
+// @version      1.1.2
 // @description  Paced unfollowing on X with preview, skip mutuals, whitelist, inactive filter and hourly batches.
 // @author       Redox
 // @homepageURL  https://unfollow-helper.vercel.app/
@@ -708,6 +708,7 @@
   details summary::-webkit-details-marker{display:none}
   details summary:after{content:"＋";float:right;color:#9aa4ad}
   details[open] summary:after{content:"－"}
+  .sweep.still{animation:none;opacity:.6}
   .speedbox{background:#1b1e22;border-radius:14px;padding:12px;margin:10px 0}
   .saved{color:#f5b942;font-size:13px;font-weight:700}
   .support{width:100%;margin-top:14px;background:#1b1e22;color:#f5b942;border:1px solid #3a3322}
@@ -739,7 +740,7 @@
   .addr{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;word-break:break-all;color:#e8eaed;margin:6px 0 10px}
   `;
 
-  let host, root, sheet, bodyEl, fab, statusEl, statsEl, ld = null;
+  let host, root, sheet, bodyEl, fab, statusEl, statsEl, ld = null, rv = null;
 
   function h(tag, attrs, ...kids) {
     const e = document.createElement(tag);
@@ -786,8 +787,100 @@
       );
     }
     if (fab) fab.classList.toggle('on', !!(S.running || job));
+    updateRunView();
   }
   function setStatus(t) { S.status = t; save(); updateStats(); }
+
+  const withCurrent = (opts, cur) => opts.some(o => o[0] === cur) ? opts : opts.concat([[cur, String(cur)]]).sort((a, b) => a[0] - b[0]);
+  function speedBox(countFn, onChange) {
+    const est = h('p', { class: 'hint' });
+    const saved = h('span', { class: 'saved' });
+    const refresh = () => {
+      const n = countFn();
+      const sp = SPEEDS[S.settings.speed] || SPEEDS.safe;
+      const perHour = Math.min(S.settings.hourlyCap, Math.floor(3600 / ((sp[0] + sp[1]) / 2)));
+      const today = Math.max(0, S.settings.dailyCap - S.day.unf);
+      const nowPart = Math.min(n, today);
+      const mins = Math.ceil(nowPart / Math.max(1, perHour) * 60);
+      const time = mins >= 60 ? Math.floor(mins / 60) + ' hr ' + (mins % 60) + ' min' : mins + ' min';
+      est.textContent = n === 0 ? 'Nothing to unfollow yet.' :
+        (nowPart === 0 ? 'Daily limit reached. The ' + n + ' left continue tomorrow.' :
+        'About ' + perHour + ' an hour, so roughly ' + time + ' for ' + nowPart + ' account' + (nowPart === 1 ? '' : 's') + ' today' +
+        (n > nowPart ? '. The other ' + (n - nowPart) + ' continue tomorrow (daily limit ' + S.settings.dailyCap + ').' : '.'));
+      if (onChange) onChange();
+    };
+    const done = () => { refresh(); updateRunView(); saved.textContent = 'Saved ✓'; clearTimeout(done.t); done.t = setTimeout(() => { saved.textContent = ''; }, 1500); };
+    const box = h('div', { class: 'speedbox' },
+      h('div', { class: 'row', style: 'justify-content:space-between' }, h('h3', { text: 'How fast to unfollow', style: 'margin:0' }), saved),
+      select('Speed', S.settings.speed, [['safe', 'Safe: every 30–60 sec'], ['medium', 'Faster: every 15–30 sec'], ['fast', 'Fastest: every 10–20 sec (riskier)']],
+        v => { setting('speed', v); S.nextAt = Math.min(S.nextAt, Date.now() + 5000); save(); done(); }),
+      h('div', { class: 'row' },
+        select('Per hour', S.settings.hourlyCap, withCurrent([[20, '20'], [35, '35 (safe)'], [50, '50'], [75, '75'], [100, '100']], S.settings.hourlyCap),
+          v => { setting('hourlyCap', +v); done(); }),
+        select('Per day', S.settings.dailyCap, withCurrent([[50, '50'], [100, '100'], [140, '140 (safe)'], [200, '200'], [300, '300']], S.settings.dailyCap),
+          v => { setting('dailyCap', +v); done(); })),
+      est,
+      h('p', { class: 'hint', text: 'Saved automatically and used every time until you change them. Changes apply straight away, even mid-queue.' }));
+    box.refresh = refresh;
+    refresh();
+    return box;
+  }
+
+  function clearQueue() {
+    if (!confirm('Remove all ' + S.queue.length + ' accounts from the queue?')) return;
+    if (job && job.kind === 'run') job.stop = true;
+    S.queue = []; S.running = false; save();
+    setStatus('Queue cleared.'); render();
+  }
+
+  function runBlock() {
+    const running = !!(job && job.kind === 'run');
+    rv = { count: h('div', { class: 'lsub' }), bar: h('div', { class: 'bar' }), fill: h('i'), counts: h('div', { class: 'counts' }), next: h('div', { class: 'list' }) };
+    rv.bar.append(rv.fill);
+    const box = h('div', { class: 'loader' },
+      h('div', { class: 'sweep' + (running ? '' : ' still'), 'aria-hidden': 'true' }, '🧹'),
+      running ? h('div', { class: 'dust', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')) : h('div', { class: 'dust' }),
+      h('div', null, h('div', { class: 'phase', text: running ? 'Unfollowing' : 'Queue paused' }),
+        running ? h('span', { class: 'dots', 'aria-hidden': 'true' }, '...') : null),
+      rv.count, rv.bar, rv.counts,
+      running
+        ? h('button', { class: 'b stop', style: 'margin-top:14px', onclick: stopAll }, 'Pause')
+        : h('button', { class: 'b main', style: 'margin-top:14px', onclick: run }, 'Continue unfollowing (' + S.queue.length + ' left)'),
+      h('div', null, h('button', { class: 'b ghost small', style: 'margin-top:10px', onclick: clearQueue }, 'Clear queue')));
+    const wrap = h('div', null,
+      box,
+      speedBox(() => S.queue.length),
+      h('div', { class: 'block' }, h('h3', { text: 'Up next' }), rv.next,
+        h('p', { class: 'hint', text: 'Keep Safari open on this tab. If you leave, it continues when you come back.' })));
+    updateRunView();
+    return wrap;
+  }
+
+  function updateRunView() {
+    if (!rv) return;
+    const running = !!(job && job.kind === 'run');
+    let t;
+    if (!running) t = S.queue.length + ' accounts waiting. Tap Continue to carry on.';
+    else if (S.pauseUntil > Date.now()) t = 'Paused after an X warning until ' + fmt(S.pauseUntil);
+    else if (S.nextAt > Date.now()) {
+      const sec = Math.ceil((S.nextAt - Date.now()) / 1000);
+      t = (S.waitLabel || 'Next unfollow') + ' in ' + (sec >= 60 ? Math.floor(sec / 60) + 'm ' + (sec % 60) + 's' : sec + 's');
+    } else t = S.status;
+    rv.count.textContent = t;
+    const target = Math.min(S.settings.dailyCap, S.day.unf + S.queue.length);
+    rv.fill.style.width = (target ? Math.max(4, Math.min(100, S.day.unf / target * 100)) : 4) + '%';
+    const hour = S.stamps.filter(x => x > Date.now() - 3600e3).length;
+    rv.counts.replaceChildren(
+      h('span', null, h('b', { text: String(S.day.unf) }), 'done today'),
+      h('span', null, h('b', { text: String(S.queue.length) }), 'left'),
+      h('span', null, h('b', { text: hour + '/' + S.settings.hourlyCap }), 'this hour'));
+    rv.next.replaceChildren(...(S.queue.length
+      ? S.queue.slice(0, 5).map(u => h('div', { class: 'item' }, h('div', { class: 'who' },
+          h('a', { href: '/' + u.handle, target: '_blank', rel: 'noopener', text: '@' + u.handle }),
+          h('div', { text: u.name || '' }))))
+      : [h('div', { class: 'item' }, h('div', { class: 'who' }, h('div', { text: 'Queue finished.' })))]));
+  }
+  setInterval(updateRunView, 1000);
 
   function updateLoader() {
     if (!ld) return;
@@ -855,16 +948,14 @@
     if (!sheet || sheet.classList.contains('hidden')) return;
     const busy = !!job;
     ld = null;
+    rv = null;
     const onPage = isFollowingPage();
 
     statusEl = h('div', { class: 'msg', text: S.status });
     statsEl = h('div', { class: 'stats' });
 
     const controls = h('div', { class: 'row', style: 'margin-top:10px' },
-      busy && job.kind === 'run' ? h('button', { class: 'b stop', onclick: stopAll }, 'Stop') : null,
-      !busy && S.queue.length ? h('button', { class: 'b', onclick: run }, S.running ? 'Resume' : 'Start queue') : null,
-      !busy && S.queue.length ? h('button', { class: 'b ghost small', onclick: () => { if (confirm('Remove all ' + S.queue.length + ' accounts from the queue?')) { S.queue = []; S.running = false; save(); setStatus('Queue cleared.'); render(); } } }, 'Clear queue') : null,
-      !onPage ? h('button', { class: 'b ghost small', onclick: goToFollowing }, 'Open my Following page') : null,
+      !onPage && !S.queue.length ? h('button', { class: 'b ghost small', onclick: goToFollowing }, 'Open my Following page') : null,
     );
 
     const o = S.opts;
@@ -883,25 +974,7 @@
     if (S.preview.length && !busy) {
       const selected = () => S.preview.filter(u => u.on).length;
       const startBtn = h('button', { class: 'b main' });
-      const est = h('p', { class: 'hint' });
-      const saved = h('span', { class: 'saved' });
-      const setStart = () => {
-        const n = selected();
-        startBtn.textContent = 'Unfollow ' + n + ' selected';
-        // Rough time estimate from the chosen speed and limits
-        const sp = SPEEDS[S.settings.speed] || SPEEDS.safe;
-        const perHour = Math.min(S.settings.hourlyCap, Math.floor(3600 / ((sp[0] + sp[1]) / 2)));
-        const today = Math.max(0, S.settings.dailyCap - S.day.unf);
-        const nowPart = Math.min(n, today);
-        const mins = Math.ceil(nowPart / Math.max(1, perHour) * 60);
-        const time = mins >= 60 ? Math.floor(mins / 60) + ' hr ' + (mins % 60) + ' min' : mins + ' min';
-        est.textContent = n === 0 ? 'Tick at least one account.' :
-          'About ' + perHour + ' an hour, so roughly ' + time + ' for ' + nowPart + ' account' + (nowPart === 1 ? '' : 's') + ' today' +
-          (n > nowPart ? '. The other ' + (n - nowPart) + ' continue tomorrow (daily limit ' + S.settings.dailyCap + ').' : '.');
-      };
-      const flashSaved = () => { saved.textContent = 'Saved ✓'; clearTimeout(flashSaved.t); flashSaved.t = setTimeout(() => { saved.textContent = ''; }, 1500); };
-      const withCurrent = (opts, cur) => opts.some(o => o[0] === cur) ? opts : opts.concat([[cur, String(cur)]]).sort((a, b) => a[0] - b[0]);
-      setStart();
+      const sb = speedBox(selected, () => { startBtn.textContent = 'Unfollow ' + selected() + ' selected'; });
       startBtn.addEventListener('click', () => {
         const add = S.preview.filter(u => u.on).sort((a, b) => a.idx - b.idx);
         const have = new Set(S.queue.map(u => u.handle.toLowerCase()));
@@ -911,7 +984,7 @@
         render(); run();
       });
       const boxes = S.preview.map(u => h('label', { class: 'item' },
-        h('input', { type: 'checkbox', checked: u.on, onchange: e => { u.on = e.target.checked; save(); setStart(); } }),
+        h('input', { type: 'checkbox', checked: u.on, onchange: e => { u.on = e.target.checked; save(); sb.refresh(); } }),
         h('div', { class: 'who' },
           h('a', { href: '/' + u.handle, target: '_blank', rel: 'noopener', text: '@' + u.handle }),
           h('div', { text: u.last !== undefined ? u.name + ', ' + ago(u.last) : u.name }))));
@@ -923,19 +996,11 @@
           h('button', { class: 'b ghost small', onclick: () => setAll(false) }, 'Select none'),
           h('button', { class: 'b ghost small', onclick: () => { S.preview = []; save(); render(); } }, 'Discard')),
         h('div', { class: 'list' }, boxes),
-        h('div', { class: 'speedbox' },
-          h('div', { class: 'row', style: 'justify-content:space-between' }, h('h3', { text: 'How fast to unfollow', style: 'margin:0' }), saved),
-          select('Speed', S.settings.speed, [['safe', 'Safe: every 30–60 sec'], ['medium', 'Faster: every 15–30 sec'], ['fast', 'Fastest: every 10–20 sec (riskier)']],
-            v => { setting('speed', v); S.nextAt = Math.min(S.nextAt, Date.now() + 5000); save(); setStart(); flashSaved(); }),
-          h('div', { class: 'row' },
-            select('Per hour', S.settings.hourlyCap, withCurrent([[20, '20'], [35, '35 (safe)'], [50, '50'], [75, '75'], [100, '100']], S.settings.hourlyCap),
-              v => { setting('hourlyCap', +v); setStart(); flashSaved(); }),
-            select('Per day', S.settings.dailyCap, withCurrent([[50, '50'], [100, '100'], [140, '140 (safe)'], [200, '200'], [300, '300']], S.settings.dailyCap),
-              v => { setting('dailyCap', +v); setStart(); flashSaved(); })),
-          est,
-          h('p', { class: 'hint', text: 'Your choices are saved and used every time until you change them.' })),
+        sb,
         startBtn);
     }
+
+    const showRun = S.queue.length > 0 && !(busy && job.kind === 'scan');
 
     const settingsBlock = h('details', { class: 'block' },
       h('summary', { text: 'Settings' }),
@@ -978,6 +1043,7 @@
       h('div', { class: 'status' }, statusEl, statsEl, controls),
       !onPage && !busy ? h('p', { class: 'hint', text: 'Works on your own Following page: Profile, then Following.' }) : null,
       busy && job.kind === 'scan' ? loaderBlock() : null,
+      showRun ? runBlock() : null,
       previewBlock, scanBlock, settingsBlock, logBlock,
       h('button', { class: 'b support', onclick: openDonate }, '💛 Support the dev'),
       h('div', { class: 'foot' },
