@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>X Unfollow Helper by Redox</title>
+<meta name="description" content="Free tool to clean up who you follow on X. Preview first, skip people who follow you back, remove inactive accounts, safe pacing. Runs on your own phone.">
+<meta property="og:title" content="X Unfollow Helper by Redox">
+<meta property="og:description" content="Clean up who you follow on X. Free, runs on your own phone, no login.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧹</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#eef2f5; --ink:#0e1a2b; --slate:#566779; --line:#d3dbe3;
+    --amber:#f2b33d; --amber-deep:#9a6a0c; --panel:#121519; --panel-2:#1b1f24; --panel-text:#e8eaed;
+    --display:"Bricolage Grotesque", ui-rounded, system-ui, sans-serif;
+    --body:-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 var(--body);
+       padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+  a{color:inherit}
+  .wrap{max-width:1040px;margin:0 auto;padding:0 20px}
+  :focus-visible{outline:3px solid var(--amber);outline-offset:3px;border-radius:6px}
+
+  /* top bar */
+  .bar{display:flex;align-items:center;justify-content:space-between;padding:18px 0}
+  .brand{font:800 18px/1 var(--display);text-decoration:none;display:flex;gap:8px;align-items:center}
+  .bar a.x{font-weight:600;font-size:14px;color:var(--slate);text-decoration:none}
+
+  /* hero */
+  .hero{display:grid;gap:34px;padding:22px 0 56px;align-items:center}
+  h1{font:800 clamp(40px,11vw,76px)/.95 var(--display);letter-spacing:-.02em;margin:0 0 18px}
+  h1 .strike{position:relative;color:var(--slate)}
+  h1 .strike:after{content:"";position:absolute;left:-4%;right:-4%;top:52%;height:.12em;background:var(--amber);border-radius:4px;transform:rotate(-3deg)}
+  .lede{font-size:18px;max-width:34em;margin:0 0 26px;color:#26374b}
+  .cta{display:flex;gap:12px;flex-wrap:wrap}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:999px;padding:14px 22px;
+       font-weight:700;font-size:16px;text-decoration:none;border:0;cursor:pointer;font-family:inherit}
+  .btn.primary{background:var(--ink);color:#fff}
+  .btn.soft{background:transparent;color:var(--ink);box-shadow:inset 0 0 0 2px var(--ink)}
+  .facts{margin:22px 0 0;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:8px}
+  .facts li{background:#fff;border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:14px;color:#26374b}
+
+  /* the mock panel */
+  .phone{background:var(--panel);color:var(--panel-text);border-radius:26px;padding:18px;max-width:380px;width:100%;
+         justify-self:center;box-shadow:0 30px 60px -20px rgba(14,26,43,.45)}
+  .phone .t{display:flex;justify-content:space-between;align-items:center;font-weight:800;font-size:17px;color:#fff}
+  .phone .t span{color:#8d99a6;font-size:22px;font-weight:400}
+  .phone .st{background:var(--panel-2);border-radius:14px;padding:12px;margin:12px 0}
+  .phone .st b{color:#fff;font-weight:600}
+  .phone .nums{display:flex;gap:14px;margin-top:6px;font-size:13px;color:#8d99a6}
+  .phone .nums em{font-style:normal;color:var(--amber);font-weight:700;font-size:15px}
+  .phone .q{font-size:13px;color:#8d99a6;margin:4px 2px 8px}
+  .phone .it{display:flex;gap:12px;align-items:center;padding:10px 4px;border-top:1px solid #23282e}
+  .phone .box{width:20px;height:20px;border-radius:5px;background:var(--amber);flex:none;display:grid;place-items:center;color:#1a1400;font-size:13px;font-weight:900}
+  .phone .box.off{background:transparent;box-shadow:inset 0 0 0 2px #4a525b}
+  .phone .it div{min-width:0}
+  .phone .it b{color:#fff;display:block}
+  .phone .it small{color:#8d99a6}
+  .phone .go{margin-top:12px;background:var(--amber);color:#1a1400;border-radius:999px;text-align:center;padding:11px;font-weight:800}
+
+  /* sections */
+  section{padding:56px 0;border-top:1px solid var(--line)}
+  h2{font:800 clamp(28px,6vw,40px)/1.05 var(--display);letter-spacing:-.01em;margin:0 0 10px}
+  .sub{color:var(--slate);margin:0 0 30px;max-width:36em}
+
+  .feat{display:grid;gap:26px 40px;margin:0}
+  .feat div{border-left:3px solid var(--amber);padding-left:16px}
+  .feat dt{font-weight:800;font-size:17px;margin-bottom:4px}
+  .feat dd{margin:0;color:#3a4a5c}
+
+  /* install tabs */
+  .tabs{display:flex;gap:6px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:5px;width:max-content;max-width:100%;overflow-x:auto;margin-bottom:24px}
+  .tabs button{border:0;background:none;border-radius:999px;padding:10px 16px;font:600 15px var(--body);color:var(--slate);cursor:pointer;white-space:nowrap}
+  .tabs button[aria-selected="true"]{background:var(--ink);color:#fff}
+  .steps{counter-reset:s;list-style:none;margin:0;padding:0;max-width:640px}
+  .steps li{counter-increment:s;position:relative;padding:0 0 22px 50px}
+  .steps li:before{content:counter(s);position:absolute;left:0;top:-2px;width:34px;height:34px;border-radius:50%;
+                   background:var(--ink);color:#fff;display:grid;place-items:center;font:800 15px var(--display)}
+  .steps li:not(:last-child):after{content:"";position:absolute;left:16px;top:36px;bottom:4px;width:2px;background:var(--line)}
+  .steps b{display:block;margin-bottom:2px}
+  .steps p{margin:0;color:#3a4a5c}
+  .steps .btn{margin-top:10px}
+  .note{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;color:#3a4a5c;max-width:640px;margin-top:6px}
+  [hidden]{display:none!important}
+
+  /* safety */
+  .rules{display:grid;gap:14px;max-width:760px;padding:0;margin:0;list-style:none}
+  .rules li{display:flex;gap:14px;align-items:baseline}
+  .rules strong{font:800 22px var(--display);min-width:74px;color:var(--amber-deep)}
+  .fine{color:var(--slate);font-size:14px;max-width:44em;margin-top:22px}
+
+  /* support */
+  .coins{display:grid;gap:12px;max-width:640px}
+  .coin{background:var(--panel);color:var(--panel-text);border-radius:16px;padding:16px;display:grid;gap:10px}
+  .coin .h{display:flex;justify-content:space-between;align-items:center}
+  .coin .h strong{color:var(--amber);font:800 18px var(--display)}
+  .coin code{font:13px/1.45 ui-monospace,Menlo,monospace;word-break:break-all;color:#fff}
+  .coin button{border:0;border-radius:999px;background:#e8eaed;color:#0f1419;font:700 14px var(--body);padding:8px 14px;cursor:pointer}
+
+  footer{border-top:1px solid var(--line);padding:34px 0 46px;text-align:center;color:var(--slate)}
+  footer .made{font:800 22px var(--display);color:var(--ink);margin-bottom:6px}
+  footer a{color:#1d9bf0;font-weight:700;text-decoration:none}
+
+  @media (min-width:820px){
+    .hero{grid-template-columns:1.15fr .85fr;padding:40px 0 80px}
+    .feat{grid-template-columns:1fr 1fr}
+    .coins{grid-template-columns:1fr}
+  }
+  @media (prefers-reduced-motion:no-preference){
+    .phone .it.gone{animation:gone 3.2s ease-in-out 1s infinite}
+    @keyframes gone{0%,55%{opacity:1}70%,100%{opacity:.35}}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="bar">
+    <a class="brand" href="#top">🧹 Unfollow Helper</a>
+    <a class="x" href="https://x.com/amredox" target="_blank" rel="noopener">@amredox</a>
+  </header>
+
+  <main id="top">
+    <div class="hero">
+      <div>
+        <h1>Clean up who you follow on X.</h1>
+        <p class="lede">A free tool that unfollows accounts in slow, safe batches. You see the list first, it skips people who follow you back, and it can find accounts that stopped posting months ago.</p>
+        <div class="cta">
+          <a class="btn primary" href="#install">Install it free</a>
+          <a class="btn soft" href="#how">See what it does</a>
+        </div>
+        <ul class="facts">
+          <li>Free forever</li>
+          <li>Runs on your own phone</li>
+          <li>No login or password</li>
+          <li>iPhone, Android, computer</li>
+        </ul>
+      </div>
+
+      <div class="phone" aria-label="Preview of the tool's panel">
+        <div class="t">🧹 X Unfollow Helper <span>×</span></div>
+        <div class="st">
+          <b>Next unfollow at 10:42.</b>
+          <div class="nums"><span>Today <em>37/140</em></span><span>This hour <em>12/35</em></span><span>Queue <em>103</em></span></div>
+        </div>
+        <div class="q">Preview: untick anyone you want to keep</div>
+        <div class="it gone"><span class="box">✓</span><div><b>@oldpromo_acct</b><small>Last post 14 months ago</small></div></div>
+        <div class="it"><span class="box">✓</span><div><b>@quietfarmer</b><small>No posts found</small></div></div>
+        <div class="it"><span class="box off"></span><div><b>@mybestfriend</b><small>Kept by you</small></div></div>
+        <div class="it"><span class="box">✓</span><div><b>@giveaway_2023</b><small>Last post 9 months ago</small></div></div>
+        <div class="go">Unfollow 3 selected</div>
+      </div>
+    </div>
+
+    <section id="how">
+      <h2>What it does</h2>
+      <p class="sub">Everything happens on your Following page, inside your own browser. Nothing is unfollowed until you approve the list.</p>
+      <dl class="feat">
+        <div><dt>Preview before anything happens</dt><dd>Scan your newest or oldest follows, see every account it picked, and untick the ones you want to keep.</dd></div>
+        <div><dt>Keeps people who follow you back</dt><dd>Anyone showing "Follows you" is skipped automatically. You can turn this off.</dd></div>
+        <div><dt>Finds inactive accounts</dt><dd>Only pick accounts that haven't posted in 3, 5 or 6 months, or have never posted.</dd></div>
+        <div><dt>Slow, human-like pacing</dt><dd>Random 30–60 second gaps, short breaks, hourly batches and a daily limit you set.</dd></div>
+        <div><dt>Never-unfollow list</dt><dd>Add friends and favourite accounts once, and add keywords to keep accounts by name or bio.</dd></div>
+        <div><dt>Full history</dt><dd>See everyone it unfollowed, with links to follow them again if you change your mind.</dd></div>
+      </dl>
+    </section>
+
+    <section id="install">
+      <h2>Install in 5 minutes</h2>
+      <p class="sub">Pick your device. You only do this once.</p>
+
+      <div class="tabs" role="tablist">
+        <button role="tab" aria-selected="true" data-tab="ios">iPhone</button>
+        <button role="tab" aria-selected="false" data-tab="android">Android</button>
+        <button role="tab" aria-selected="false" data-tab="pc">Computer</button>
+      </div>
+
+      <div data-panel="ios">
+        <ol class="steps">
+          <li><b>Get the Userscripts app</b><p>Free on the App Store, by Justin Wasack. Open it once and tap Set Userscripts Directory, then choose its Userscripts folder.</p></li>
+          <li><b>Switch it on in Safari</b><p>Settings, then Apps, then Safari, then Extensions, then Userscripts. Turn it on and set websites to Allow.</p></li>
+          <li><b>Install the script</b><p>In Safari, tap the button below. On the page that opens, tap the page menu (left of the address bar), then Userscripts, then Install.</p>
+            <a class="btn primary" href="x-unfollow-helper.user.js">Install script</a></li>
+          <li><b>Open your Following page</b><p>Go to x.com in Safari (not the X app), open your profile and tap Following. Tap the 🧹 button at the bottom left.</p></li>
+        </ol>
+        <p class="note">iPhone pauses web pages you're not looking at, so keep Safari open on screen while it runs. The tool keeps your screen awake, and if you leave, it continues where it stopped when you come back.</p>
+      </div>
+
+      <div data-panel="android" hidden>
+        <ol class="steps">
+          <li><b>Get Firefox</b><p>Free on the Play Store. Chrome on Android can't run add-ons.</p></li>
+          <li><b>Add Tampermonkey</b><p>In Firefox, open the menu, then Extensions (Add-ons), find Tampermonkey and tap Add.</p></li>
+          <li><b>Install the script</b><p>Open this page in Firefox and tap the button below, then tap Install on the Tampermonkey page.</p>
+            <a class="btn primary" href="x-unfollow-helper.user.js">Install script</a></li>
+          <li><b>Open your Following page</b><p>Go to x.com in Firefox, open your profile and tap Following. Tap the 🧹 button at the bottom left.</p></li>
+        </ol>
+        <p class="note">Use split screen or a pop-up window to keep Firefox visible while you use other apps, and set Firefox's battery use to Unrestricted in your phone's settings.</p>
+      </div>
+
+      <div data-panel="pc" hidden>
+        <ol class="steps">
+          <li><b>Add Tampermonkey</b><p>Install it for Chrome, Edge or Firefox from your browser's extension store.</p></li>
+          <li><b>Chrome and Edge only</b><p>Open the extensions page, tap Details on Tampermonkey and turn on Allow User Scripts.</p></li>
+          <li><b>Install the script</b><p>Click the button below, then click Install on the Tampermonkey page.</p>
+            <a class="btn primary" href="x-unfollow-helper.user.js">Install script</a></li>
+          <li><b>Open your Following page</b><p>Go to x.com, open your profile and click Following. Click the 🧹 button at the bottom left.</p></li>
+        </ol>
+        <p class="note">On a computer it keeps running in a background tab. In Chrome, turn off Memory Saver for x.com so the tab doesn't go to sleep.</p>
+      </div>
+    </section>
+
+    <section id="safety">
+      <h2>Stay safe</h2>
+      <p class="sub">X doesn't publish an official unfollow limit, so the tool is set up to go slowly.</p>
+      <ul class="rules">
+        <li><strong>≤150</strong><span>unfollows a day is the safer range. Start at 50 for the first days, especially on newer accounts.</span></li>
+        <li><strong>≈35</strong><span>an hour, in batches with random gaps and breaks, so it doesn't look automated.</span></li>
+        <li><strong>24h</strong><span>pause if X ever shows a warning. The tool stops by itself when it sees one.</span></li>
+      </ul>
+      <p class="fine">Automating actions goes against X's rules, and X decides what happens to accounts, so use it at your own risk. The tool never sees your password and only runs inside your own browser.</p>
+    </section>
+
+    <section id="support">
+      <h2>Support the dev</h2>
+      <p class="sub">The tool is free. If it saved you time, a tip keeps updates coming. Send only on the matching network.</p>
+      <div class="coins">
+        <div class="coin"><div class="h"><strong>SOL</strong><button data-copy="7UekwDZb4Fv9x4M8bxAfQgzkwnzwvkgC3quYZAuBnsg7">Copy</button></div><code>7UekwDZb4Fv9x4M8bxAfQgzkwnzwvkgC3quYZAuBnsg7</code></div>
+        <div class="coin"><div class="h"><strong>BTC</strong><button data-copy="bc1qwe3zmgv4uj4xlvnvp7djx0qjyuzxgxwu3kv88r">Copy</button></div><code>bc1qwe3zmgv4uj4xlvnvp7djx0qjyuzxgxwu3kv88r</code></div>
+        <div class="coin"><div class="h"><strong>ETH</strong><button data-copy="0x247cb46cFE6b24e8b3ec3471e1974341C1ee7DB1">Copy</button></div><code>0x247cb46cFE6b24e8b3ec3471e1974341C1ee7DB1</code></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <div class="made">Made by Redox</div>
+  <a href="https://x.com/amredox" target="_blank" rel="noopener">Connect on X</a>
+</footer>
+
+<script>
+  // Tabs
+  const tabs = document.querySelectorAll('[data-tab]');
+  tabs.forEach(t => t.addEventListener('click', () => {
+    tabs.forEach(x => x.setAttribute('aria-selected', x === t));
+    document.querySelectorAll('[data-panel]').forEach(p => { p.hidden = p.dataset.panel !== t.dataset.tab; });
+  }));
+  // Open the right tab for the visitor's device
+  const ua = navigator.userAgent;
+  const pick = /iPhone|iPad|iPod/.test(ua) ? 'ios' : /Android/.test(ua) ? 'android' : 'pc';
+  const btn = document.querySelector('[data-tab="' + pick + '"]');
+  if (btn) btn.click();
+
+  // Copy buttons
+  document.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', async () => {
+    const text = b.dataset.copy;
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {
+      const ta = document.createElement('textarea'); ta.value = text; document.body.append(ta); ta.select();
+      try { ok = document.execCommand('copy'); } catch (_) {} ta.remove();
+    }
+    b.textContent = ok ? 'Copied ✓' : 'Copy failed';
+    setTimeout(() => { b.textContent = 'Copy'; }, 1800);
+  }));
+</script>
+</body>
+</html>
