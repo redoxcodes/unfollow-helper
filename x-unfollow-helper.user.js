@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X Unfollow Helper by Redox
 // @namespace    https://x.com/amredox
-// @version      1.1.2
+// @version      1.1.3
 // @description  Paced unfollowing on X with preview, skip mutuals, whitelist, inactive filter and hourly batches.
 // @author       Redox
 // @homepageURL  https://unfollow-helper.vercel.app/
@@ -643,6 +643,7 @@
         }
         S.nextAt = Date.now() + wait;
         save(); updateStats();
+        sweptAway(u.handle);
       } else {
         fails++;
         if (fails >= 3) { setStatus('Unfollow did not work 3 times in a row. Stopped for safety.'); break; }
@@ -709,6 +710,23 @@
   details summary:after{content:"＋";float:right;color:#9aa4ad}
   details[open] summary:after{content:"－"}
   .sweep.still{animation:none;opacity:.6}
+  .sweep.swish{animation:swish .65s ease-in-out}
+  @keyframes swish{0%{transform:rotate(0)}30%{transform:rotate(-38deg) translateX(-8px)}70%{transform:rotate(32deg) translateX(12px)}100%{transform:rotate(0)}}
+  .swept{position:absolute;left:50%;top:70px;display:flex;flex-direction:column;align-items:center;gap:5px;pointer-events:none;z-index:2;animation:swept 2.2s cubic-bezier(.5,0,.3,1) forwards}
+  .swept .chip{position:relative;background:#e8eaed;color:#0f1419;font-weight:800;border-radius:999px;padding:7px 14px;font-size:14px;white-space:nowrap;box-shadow:0 8px 20px rgba(0,0,0,.4)}
+  .swept .chip:after{content:"";position:absolute;left:10px;right:10px;top:50%;height:2.5px;border-radius:2px;background:#f4212e;transform:scaleX(0);transform-origin:left;animation:strike .35s .3s ease-out forwards}
+  .swept .ok{color:#f5b942;font-size:12.5px;font-weight:800;opacity:0;animation:okin .25s .45s forwards}
+  @keyframes strike{to{transform:scaleX(1)}}
+  @keyframes okin{to{opacity:1}}
+  @keyframes swept{0%{opacity:0;transform:translate(-50%,14px) scale(.85)}12%{opacity:1;transform:translate(-50%,0) scale(1)}58%{opacity:1;transform:translate(-50%,0) rotate(0)}100%{opacity:0;transform:translate(70%,-46px) rotate(16deg) scale(.75)}}
+  .burst{position:absolute;left:50%;top:84px;width:0;height:0;pointer-events:none;z-index:1}
+  .burst i{position:absolute;width:6px;height:6px;border-radius:3px;background:#f5b942;opacity:0;animation:burst .8s .35s ease-out forwards}
+  .burst i:nth-child(even){background:#e8eaed;width:4px;height:4px}
+  @keyframes burst{0%{opacity:1;transform:rotate(var(--a)) translateX(0)}100%{opacity:0;transform:rotate(var(--a)) translateX(46px)}}
+  .counts b.bump{animation:bump .55s ease}
+  @keyframes bump{40%{transform:scale(1.35);color:#fff}}
+  @media (prefers-reduced-motion:reduce){.sweep.swish,.burst i,.counts b.bump{animation:none}.swept{animation:fadeout 2.2s forwards}.swept .chip:after{animation:none;transform:scaleX(1)}.swept .ok{animation:none;opacity:1}}
+  @keyframes fadeout{0%,70%{opacity:1;transform:translate(-50%,0)}100%{opacity:0;transform:translate(-50%,0)}}
   .speedbox{background:#1b1e22;border-radius:14px;padding:12px;margin:10px 0}
   .saved{color:#f5b942;font-size:13px;font-weight:700}
   .support{width:100%;margin-top:14px;background:#1b1e22;color:#f5b942;border:1px solid #3a3322}
@@ -837,8 +855,9 @@
     const running = !!(job && job.kind === 'run');
     rv = { count: h('div', { class: 'lsub' }), bar: h('div', { class: 'bar' }), fill: h('i'), counts: h('div', { class: 'counts' }), next: h('div', { class: 'list' }) };
     rv.bar.append(rv.fill);
+    const broom = h('div', { class: 'sweep' + (running ? '' : ' still'), 'aria-hidden': 'true' }, '🧹');
     const box = h('div', { class: 'loader' },
-      h('div', { class: 'sweep' + (running ? '' : ' still'), 'aria-hidden': 'true' }, '🧹'),
+      broom,
       running ? h('div', { class: 'dust', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')) : h('div', { class: 'dust' }),
       h('div', null, h('div', { class: 'phase', text: running ? 'Unfollowing' : 'Queue paused' }),
         running ? h('span', { class: 'dots', 'aria-hidden': 'true' }, '...') : null),
@@ -847,6 +866,7 @@
         ? h('button', { class: 'b stop', style: 'margin-top:14px', onclick: stopAll }, 'Pause')
         : h('button', { class: 'b main', style: 'margin-top:14px', onclick: run }, 'Continue unfollowing (' + S.queue.length + ' left)'),
       h('div', null, h('button', { class: 'b ghost small', style: 'margin-top:10px', onclick: clearQueue }, 'Clear queue')));
+    rv.box = box; rv.broom = broom; rv.lastDone = S.day.unf;
     const wrap = h('div', null,
       box,
       speedBox(() => S.queue.length),
@@ -854,6 +874,20 @@
         h('p', { class: 'hint', text: 'Keep Safari open on this tab. If you leave, it continues when you come back.' })));
     updateRunView();
     return wrap;
+  }
+
+  // Little celebration each time an account is unfollowed:
+  // the broom swishes, the @name gets crossed out and swept off the card.
+  function sweptAway(handle) {
+    if (!rv || !rv.box) return;
+    const chip = h('div', { class: 'swept', 'aria-hidden': 'true' },
+      h('span', { class: 'chip', text: '@' + handle }),
+      h('span', { class: 'ok', text: 'Unfollowed ✓' }));
+    const bits = h('div', { class: 'burst', 'aria-hidden': 'true' }, [0, 1, 2, 3, 4, 5, 6, 7].map(i => h('i', { style: '--a:' + (i * 45) + 'deg' })));
+    rv.box.append(chip, bits);
+    rv.broom.classList.remove('swish'); void rv.broom.offsetWidth; rv.broom.classList.add('swish');
+    setTimeout(() => { rv && rv.broom && rv.broom.classList.remove('swish'); }, 700);
+    setTimeout(() => { chip.remove(); bits.remove(); }, 2300);
   }
 
   function updateRunView() {
@@ -870,8 +904,10 @@
     const target = Math.min(S.settings.dailyCap, S.day.unf + S.queue.length);
     rv.fill.style.width = (target ? Math.max(4, Math.min(100, S.day.unf / target * 100)) : 4) + '%';
     const hour = S.stamps.filter(x => x > Date.now() - 3600e3).length;
+    const doneB = h('b', { text: String(S.day.unf) });
+    if (S.day.unf > rv.lastDone) { doneB.classList.add('bump'); rv.lastDone = S.day.unf; }
     rv.counts.replaceChildren(
-      h('span', null, h('b', { text: String(S.day.unf) }), 'done today'),
+      h('span', null, doneB, 'done today'),
       h('span', null, h('b', { text: String(S.queue.length) }), 'left'),
       h('span', null, h('b', { text: hour + '/' + S.settings.hourlyCap }), 'this hour'));
     rv.next.replaceChildren(...(S.queue.length
