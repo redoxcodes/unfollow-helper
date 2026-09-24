@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X Unfollow Helper by Redox
 // @namespace    https://x.com/amredox
-// @version      1.0.5
+// @version      1.0.6
 // @description  Paced unfollowing on X with preview, skip mutuals, whitelist, inactive filter and hourly batches.
 // @author       Redox
 // @homepageURL  https://unfollow-helper.vercel.app/
@@ -56,11 +56,17 @@
     running: false, pauseUntil: 0, nextAt: 0, waitLabel: '',
     sinceBreak: 0, breakAfter: 0,
     day: { d: today(), unf: 0, checks: 0 },
-    meList: '', tpl: null, status: 'Ready',
+    meList: '', tpl: null, status: 'Ready', act: {},
     opts: { dir: 'newest', count: 50, months: 0 },
   }, load());
   S.settings = Object.assign({}, DEFAULT_SETTINGS, S.settings || {});
 
+  const ACT_DAYS = 7; // reuse an account's activity result for this many days
+  function pruneAct() {
+    const keys = Object.keys(S.act || {});
+    if (keys.length <= 6000) return;
+    keys.sort((a, b) => S.act[a].t - S.act[b].t).slice(0, keys.length - 5000).forEach(k => { delete S.act[k]; });
+  }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
   function rollDay() { if (!S.day || S.day.d !== today()) S.day = { d: today(), unf: 0, checks: 0 }; }
 
@@ -72,7 +78,7 @@
   // Uses the real clock, so time spent frozen in the background still counts.
   async function sleepUntil(t, token) {
     while (Date.now() < t) {
-      if (token && token.stop) return false;
+      if (token && (token.stop || token.review)) return false;
       await sleep(Math.max(50, Math.min(1000, t - Date.now())));
     }
     return true;
@@ -381,17 +387,31 @@
     if (!my.stop && o.months) {
       const cutoff = Date.now() - o.months * 30.44 * 864e5;
       for (const u of list) {
-        if (my.stop) break;
+        if (my.stop || my.review) break;
         rollDay();
-        if (S.day.checks >= CFG.dailyCheckCap) { note = ' Daily activity-check limit reached, scan again tomorrow for more.'; break; }
-        setStatus('Checking activity: found ' + picked.length + ' of ' + o.count + ' (checking @' + u.handle + ')');
-        setProg({ phase: 'Checking who is inactive', sub: 'Looking at @' + u.handle, checked: prog.checked + 1,
-          found: picked.length, pct: Math.min(100, picked.length / o.count * 100) });
-        const r = await lastPost(u.id);
-        S.day.checks++; save();
-        if (r.error) { note = ' ' + r.error; if (r.fatal) break; continue; }
-        if (!r.last || r.last < cutoff) { u.last = r.last || 0; picked.push(u); setProg({ found: picked.length, pct: Math.min(100, picked.length / o.count * 100) }); if (picked.length >= o.count) break; }
-        await sleepUntil(Date.now() + rnd(CFG.checkMinSec, CFG.checkMaxSec) * 1000, my);
+        let r, fresh = false;
+        const c = S.act[u.id];
+        if (c && Date.now() - c.t < ACT_DAYS * 864e5) {
+          r = { last: c.last };
+          setProg({ phase: 'Checking who is inactive', sub: 'Already checked @' + u.handle + ', skipping the wait', checked: prog.checked + 1 });
+        } else {
+          if (S.day.checks >= CFG.dailyCheckCap) { note = ' Daily activity-check limit reached, scan again tomorrow for more.'; break; }
+          setStatus('Checking activity: found ' + picked.length + ' of ' + o.count + ' (checking @' + u.handle + ')');
+          setProg({ phase: 'Checking who is inactive', sub: 'Looking at @' + u.handle, checked: prog.checked + 1,
+            found: picked.length, pct: Math.min(100, picked.length / o.count * 100) });
+          r = await lastPost(u.id);
+          S.day.checks++;
+          if (!r.error) { S.act[u.id] = { last: r.last || 0, t: Date.now() }; pruneAct(); }
+          save();
+          if (r.error) { note = ' ' + r.error; if (r.fatal) break; continue; }
+          fresh = true;
+        }
+        if (!r.last || r.last < cutoff) {
+          u.last = r.last || 0; picked.push(u);
+          setProg({ found: picked.length, pct: Math.min(100, picked.length / o.count * 100) });
+          if (picked.length >= o.count) break;
+        }
+        if (fresh) await sleepUntil(Date.now() + rnd(CFG.checkMinSec, CFG.checkMaxSec) * 1000, my);
       }
     }
 
@@ -402,6 +422,7 @@
     const skipText = 'Skipped: ' + skipped.mutual + ' follow you, ' + skipped.whitelist + ' whitelisted, ' +
       skipped.verified + ' verified, ' + skipped.keyword + ' keyword.';
     if (my.stop) setStatus('Scan stopped. ' + picked.length + ' in preview.');
+    else if (my.review) setStatus('Showing the ' + picked.length + ' found so far. Scan again anytime for more; checked accounts are remembered.');
     else setStatus('Preview ready: ' + picked.length + ' accounts. ' + skipText + note);
     render();
   }
@@ -668,7 +689,9 @@
     const det = prog.pct >= 0;
     ld.bar.classList.toggle('ind', !det);
     ld.fill.style.width = det ? Math.max(4, prog.pct) + '%' : '';
-    ld.hint.textContent = checking ? 'Each check takes 10–20 seconds so X stays happy. Keep this screen open.' : 'Keep this screen open. The page scrolls by itself.';
+    ld.hint.textContent = checking ? 'New checks take 10–20 seconds each so X stays happy. Accounts checked in the last 7 days are instant. Keep this screen open.' : 'Keep this screen open. The page scrolls by itself.';
+    ld.review.classList.toggle('hidden', !(checking && prog.found > 0));
+    ld.review.textContent = 'Review ' + prog.found + ' found now';
   }
   function loaderBlock() {
     ld = {
@@ -678,14 +701,15 @@
       fill: h('i'),
       counts: h('div', { class: 'counts' }),
       hint: h('p', { class: 'hint' }),
+      review: h('button', { class: 'b main', style: 'margin-top:12px', onclick: () => { if (job && job.kind === 'scan') job.review = true; } }),
     };
     ld.bar.append(ld.fill);
     const box = h('div', { class: 'loader' },
       h('div', { class: 'sweep', 'aria-hidden': 'true' }, '🧹'),
       h('div', { class: 'dust', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')),
       h('div', null, ld.phase, h('span', { class: 'dots', 'aria-hidden': 'true' }, '...')),
-      ld.sub, ld.bar, ld.counts, ld.hint,
-      h('button', { class: 'b stop', style: 'margin-top:12px', onclick: stopAll }, 'Stop scan'));
+      ld.sub, ld.bar, ld.counts, ld.hint, ld.review,
+      h('button', { class: 'b stop', style: 'margin-top:10px', onclick: stopAll }, 'Stop scan'));
     updateLoader();
     return box;
   }
@@ -785,7 +809,8 @@
           h('textarea', { placeholder: 'elonmusk\n@friend', value: S.settings.whitelist, oninput: e => setting('whitelist', e.target.value) })),
         h('label', { class: 'field' }, h('span', { text: 'Keep accounts whose name or bio contains (comma separated)' }),
           h('textarea', { placeholder: 'crypto, nft, football', value: S.settings.keywords, oninput: e => setting('keywords', e.target.value) })),
-        h('p', { class: 'hint', text: 'Safe range: up to 150 a day, around 35 an hour. Start lower on new accounts.' })));
+        h('p', { class: 'hint', text: 'Safe range: up to 150 a day, around 35 an hour. Start lower on new accounts.' }),
+        h('button', { class: 'b ghost small', style: 'margin-top:10px', onclick: () => { if (confirm('Forget saved activity checks? Next inactive scan will check everyone again.')) { S.act = {}; save(); setStatus('Saved activity checks cleared.'); } } }, 'Forget saved activity checks')));
 
     const logList = h('div');
     const fillLog = () => {
