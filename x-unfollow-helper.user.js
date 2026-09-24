@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X Unfollow Helper by Redox
 // @namespace    https://x.com/amredox
-// @version      1.0.9
+// @version      1.1.1
 // @description  Paced unfollowing on X with preview, skip mutuals, whitelist, inactive filter and hourly batches.
 // @author       Redox
 // @homepageURL  https://unfollow-helper.vercel.app/
@@ -39,12 +39,13 @@
     checkFloorSec: 1.5,                   // fastest allowed gap between checks
   };
   const DEFAULT_SETTINGS = {
-    dailyCap: 140, hourlyCap: 35,
+    dailyCap: 140, hourlyCap: 35, speed: 'safe',
     skipMutuals: true, skipVerified: false,
     whitelist: '', keywords: '',
   };
   /* ========================================================== */
 
+  const SPEEDS = { safe: [30, 60], medium: [15, 30], fast: [10, 20] }; // seconds between unfollows
   const KEY = 'redoxUnf:v1';
   const BEARER = 'AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA';
   const TPL_RE = /\/i\/api\/graphql\/[^/]+\/UserTweets\?/;
@@ -631,7 +632,8 @@
         S.log.unshift({ h: u.handle, n: u.name, t: Date.now() });
         S.log = S.log.slice(0, 3000);
         S.sinceBreak++;
-        let wait = rnd(CFG.minDelaySec, CFG.maxDelaySec) * 1000;
+        const sp = SPEEDS[S.settings.speed] || SPEEDS.safe;
+        let wait = rnd(sp[0], sp[1]) * 1000;
         S.waitLabel = 'Next unfollow';
         if (S.sinceBreak >= S.breakAfter) {
           wait = rnd(CFG.breakMinMin, CFG.breakMaxMin) * 60000;
@@ -706,6 +708,8 @@
   details summary::-webkit-details-marker{display:none}
   details summary:after{content:"＋";float:right;color:#9aa4ad}
   details[open] summary:after{content:"－"}
+  .speedbox{background:#1b1e22;border-radius:14px;padding:12px;margin:10px 0}
+  .saved{color:#f5b942;font-size:13px;font-weight:700}
   .support{width:100%;margin-top:14px;background:#1b1e22;color:#f5b942;border:1px solid #3a3322}
   .loader{background:#1b1e22;border-radius:18px;padding:22px 16px 18px;margin:12px 0;text-align:center;position:relative;overflow:hidden}
   .sweep{font-size:46px;display:inline-block;transform-origin:50% 85%;animation:sweep .9s ease-in-out infinite alternate}
@@ -879,7 +883,24 @@
     if (S.preview.length && !busy) {
       const selected = () => S.preview.filter(u => u.on).length;
       const startBtn = h('button', { class: 'b main' });
-      const setStart = () => { startBtn.textContent = 'Unfollow ' + selected() + ' selected'; };
+      const est = h('p', { class: 'hint' });
+      const saved = h('span', { class: 'saved' });
+      const setStart = () => {
+        const n = selected();
+        startBtn.textContent = 'Unfollow ' + n + ' selected';
+        // Rough time estimate from the chosen speed and limits
+        const sp = SPEEDS[S.settings.speed] || SPEEDS.safe;
+        const perHour = Math.min(S.settings.hourlyCap, Math.floor(3600 / ((sp[0] + sp[1]) / 2)));
+        const today = Math.max(0, S.settings.dailyCap - S.day.unf);
+        const nowPart = Math.min(n, today);
+        const mins = Math.ceil(nowPart / Math.max(1, perHour) * 60);
+        const time = mins >= 60 ? Math.floor(mins / 60) + ' hr ' + (mins % 60) + ' min' : mins + ' min';
+        est.textContent = n === 0 ? 'Tick at least one account.' :
+          'About ' + perHour + ' an hour, so roughly ' + time + ' for ' + nowPart + ' account' + (nowPart === 1 ? '' : 's') + ' today' +
+          (n > nowPart ? '. The other ' + (n - nowPart) + ' continue tomorrow (daily limit ' + S.settings.dailyCap + ').' : '.');
+      };
+      const flashSaved = () => { saved.textContent = 'Saved ✓'; clearTimeout(flashSaved.t); flashSaved.t = setTimeout(() => { saved.textContent = ''; }, 1500); };
+      const withCurrent = (opts, cur) => opts.some(o => o[0] === cur) ? opts : opts.concat([[cur, String(cur)]]).sort((a, b) => a[0] - b[0]);
       setStart();
       startBtn.addEventListener('click', () => {
         const add = S.preview.filter(u => u.on).sort((a, b) => a.idx - b.idx);
@@ -902,6 +923,17 @@
           h('button', { class: 'b ghost small', onclick: () => setAll(false) }, 'Select none'),
           h('button', { class: 'b ghost small', onclick: () => { S.preview = []; save(); render(); } }, 'Discard')),
         h('div', { class: 'list' }, boxes),
+        h('div', { class: 'speedbox' },
+          h('div', { class: 'row', style: 'justify-content:space-between' }, h('h3', { text: 'How fast to unfollow', style: 'margin:0' }), saved),
+          select('Speed', S.settings.speed, [['safe', 'Safe: every 30–60 sec'], ['medium', 'Faster: every 15–30 sec'], ['fast', 'Fastest: every 10–20 sec (riskier)']],
+            v => { setting('speed', v); S.nextAt = Math.min(S.nextAt, Date.now() + 5000); save(); setStart(); flashSaved(); }),
+          h('div', { class: 'row' },
+            select('Per hour', S.settings.hourlyCap, withCurrent([[20, '20'], [35, '35 (safe)'], [50, '50'], [75, '75'], [100, '100']], S.settings.hourlyCap),
+              v => { setting('hourlyCap', +v); setStart(); flashSaved(); }),
+            select('Per day', S.settings.dailyCap, withCurrent([[50, '50'], [100, '100'], [140, '140 (safe)'], [200, '200'], [300, '300']], S.settings.dailyCap),
+              v => { setting('dailyCap', +v); setStart(); flashSaved(); })),
+          est,
+          h('p', { class: 'hint', text: 'Your choices are saved and used every time until you change them.' })),
         startBtn);
     }
 
@@ -910,14 +942,15 @@
       h('div', { style: 'margin-top:10px' },
         h('div', { class: 'row' },
           numField('Unfollows per day', 'dailyCap', 1, 400),
-          numField('Unfollows per hour', 'hourlyCap', 1, 60)),
+          numField('Unfollows per hour', 'hourlyCap', 1, 100)),
+        select('Speed between unfollows', S.settings.speed, [['safe', 'Safe: every 30–60 sec'], ['medium', 'Faster: every 15–30 sec'], ['fast', 'Fastest: every 10–20 sec (riskier)']], v => { setting('speed', v); S.nextAt = Math.min(S.nextAt, Date.now() + 5000); save(); }),
         toggle('Skip accounts that follow you', 'skipMutuals'),
         toggle('Skip verified accounts', 'skipVerified'),
         h('label', { class: 'field' }, h('span', { text: 'Never unfollow (usernames, one per line)' }),
           h('textarea', { placeholder: 'elonmusk\n@friend', value: S.settings.whitelist, oninput: e => setting('whitelist', e.target.value) })),
         h('label', { class: 'field' }, h('span', { text: 'Keep accounts whose name or bio contains (comma separated)' }),
           h('textarea', { placeholder: 'crypto, nft, football', value: S.settings.keywords, oninput: e => setting('keywords', e.target.value) })),
-        h('p', { class: 'hint', text: 'Safe range: up to 150 a day, around 35 an hour. Start lower on new accounts.' }),
+        h('p', { class: 'hint', text: 'Safe range: up to 150 a day, around 35 an hour. Faster speeds only finish your daily amount sooner; the daily limit still decides the total. Start lower on new accounts.' }),
         h('button', { class: 'b ghost small', style: 'margin-top:10px', onclick: () => { if (confirm('Forget saved activity checks? Next inactive scan will check everyone again.')) { S.act = {}; save(); setStatus('Saved activity checks cleared.'); } } }, 'Forget saved activity checks')));
 
     const logList = h('div');
