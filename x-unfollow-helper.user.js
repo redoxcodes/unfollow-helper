@@ -1,12 +1,12 @@
 // ==UserScript==
 // @name         X Unfollow Helper by Redox
 // @namespace    https://x.com/amredox
-// @version      1.0.2
+// @version      1.0.3
 // @description  Paced unfollowing on X with preview, skip mutuals, whitelist, inactive filter and hourly batches.
 // @author       Redox
-// @homepageURL  https://redoxcodes.github.io/unfollow-helper/
-// @updateURL    https://redoxcodes.github.io/unfollow-helper/x-unfollow-helper.user.js
-// @downloadURL  https://redoxcodes.github.io/unfollow-helper/x-unfollow-helper.user.js
+// @homepageURL  https://unfollow-helper.vercel.app/
+// @updateURL    https://unfollow-helper.vercel.app/x-unfollow-helper.user.js
+// @downloadURL  https://unfollow-helper.vercel.app/x-unfollow-helper.user.js
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @match        https://mobile.x.com/*
