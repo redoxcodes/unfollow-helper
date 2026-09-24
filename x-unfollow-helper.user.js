@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X Unfollow Helper by Redox
 // @namespace    https://x.com/amredox
-// @version      1.1.3
+// @version      1.1.5
 // @description  Paced unfollowing on X with preview, skip mutuals, whitelist, inactive filter and hourly batches.
 // @author       Redox
 // @homepageURL  https://unfollow-helper.vercel.app/
@@ -39,13 +39,24 @@
     checkFloorSec: 1.5,                   // fastest allowed gap between checks
   };
   const DEFAULT_SETTINGS = {
-    dailyCap: 140, hourlyCap: 35, speed: 'safe',
+    dailyCap: 140, hourlyCap: 35, speed: 'safe', breakLen: 2,
     skipMutuals: true, skipVerified: false,
     whitelist: '', keywords: '',
   };
   /* ========================================================== */
 
   const SPEEDS = { safe: [30, 60], medium: [15, 30], fast: [10, 20] }; // seconds between unfollows
+  const breakMs = () => {
+    const b = S.settings.breakLen;
+    return (b >= 15 ? rnd(10, 20) : b * rnd(0.85, 1.15)) * 60000;
+  };
+  const breakAvgMin = () => (S.settings.breakLen >= 15 ? 15 : S.settings.breakLen);
+  // If a break is running longer than the chosen break length, shorten it.
+  function trimBreak() {
+    if (/^Short break/.test(S.waitLabel || '') && S.nextAt - Date.now() > breakAvgMin() * 60000 * 1.2) {
+      S.nextAt = Date.now() + breakMs(); S.waitTotal = S.nextAt - Date.now(); save();
+    }
+  }
   const KEY = 'redoxUnf:v1';
   const BEARER = 'AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA';
   const TPL_RE = /\/i\/api\/graphql\/[^/]+\/UserTweets\?/;
@@ -492,7 +503,6 @@
     if (job === my) job = null;
     S.preview = picked.map(u => Object.assign({}, u, { on: true }));
     save();
-    window.scrollTo(0, 0);
     const skipText = 'Skipped: ' + skipped.mutual + ' follow you, ' + skipped.whitelist + ' whitelisted, ' +
       skipped.verified + ' verified, ' + skipped.keyword + ' keyword.';
     if (my.stop) setStatus('Scan stopped. ' + picked.length + ' in preview.');
@@ -636,18 +646,20 @@
         let wait = rnd(sp[0], sp[1]) * 1000;
         S.waitLabel = 'Next unfollow';
         if (S.sinceBreak >= S.breakAfter) {
-          wait = rnd(CFG.breakMinMin, CFG.breakMaxMin) * 60000;
+          wait = breakMs();
           S.sinceBreak = 0;
           S.breakAfter = Math.round(rnd(CFG.breakEveryMin, CFG.breakEveryMax));
           S.waitLabel = 'Short break, back';
         }
         S.nextAt = Date.now() + wait;
+        S.waitTotal = wait;
         save(); updateStats();
         sweptAway(u.handle);
       } else {
         fails++;
         if (fails >= 3) { setStatus('Unfollow did not work 3 times in a row. Stopped for safety.'); break; }
         S.nextAt = Date.now() + rnd(20, 40) * 1000;
+        S.waitTotal = S.nextAt - Date.now();
         S.waitLabel = 'Retrying';
         save();
       }
@@ -725,7 +737,7 @@
   @keyframes burst{0%{opacity:1;transform:rotate(var(--a)) translateX(0)}100%{opacity:0;transform:rotate(var(--a)) translateX(46px)}}
   .counts b.bump{animation:bump .55s ease}
   @keyframes bump{40%{transform:scale(1.35);color:#fff}}
-  @media (prefers-reduced-motion:reduce){.sweep.swish,.burst i,.counts b.bump{animation:none}.swept{animation:fadeout 2.2s forwards}.swept .chip:after{animation:none;transform:scaleX(1)}.swept .ok{animation:none;opacity:1}}
+  @media (prefers-reduced-motion:reduce){.ringwrap.busy .ring,.ringwrap.break .sweep,.ringwrap.break .cup,.ringwrap.flash:before,.bar i:after{animation:none}.sweep.swish,.burst i,.counts b.bump{animation:none}.swept{animation:fadeout 2.2s forwards}.swept .chip:after{animation:none;transform:scaleX(1)}.swept .ok{animation:none;opacity:1}}
   @keyframes fadeout{0%,70%{opacity:1;transform:translate(-50%,0)}100%{opacity:0;transform:translate(-50%,0)}}
   .speedbox{background:#1b1e22;border-radius:14px;padding:12px;margin:10px 0}
   .saved{color:#f5b942;font-size:13px;font-weight:700}
@@ -742,7 +754,28 @@
   @keyframes dots{to{width:1.1em}}
   .lsub{color:#9aa4ad;font-size:14px;margin-top:4px;min-height:1.4em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .bar{height:8px;background:#2a2f35;border-radius:99px;overflow:hidden;margin:16px 0 14px}
-  .bar i{display:block;height:100%;width:4%;background:#f5b942;border-radius:99px;transition:width .5s ease}
+  .bar i{display:block;position:relative;overflow:hidden;height:100%;width:4%;background:linear-gradient(90deg,#e0a02e,#f5b942 60%,#ffd27a);border-radius:99px;transition:width .6s cubic-bezier(.3,1.4,.5,1)}
+  .bar i:after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent 20%,rgba(255,255,255,.55) 50%,transparent 80%);transform:translateX(-120%);animation:shine 2.4s ease-in-out infinite}
+  @keyframes shine{60%,100%{transform:translateX(120%)}}
+  .ringwrap{position:relative;width:124px;height:124px;margin:0 auto 4px;display:grid;place-items:center}
+  .ring{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
+  .ring circle{fill:none;stroke-width:6}
+  .ring .trk{stroke:#2a2f35}
+  .ring .prg{stroke:#f5b942;stroke-linecap:round;stroke-dasharray:326.7;stroke-dashoffset:326.7;transition:stroke-dashoffset 1s linear,stroke .5s;filter:drop-shadow(0 0 6px rgba(245,185,66,.55))}
+  .ringwrap.busy .ring{animation:spin .9s linear infinite}
+  @keyframes spin{to{transform:rotate(270deg)}}
+  .ringwrap.break .prg{stroke:#5cc8e0;filter:drop-shadow(0 0 6px rgba(92,200,224,.55))}
+  .ringwrap.break .sweep{animation:lean 2.6s ease-in-out infinite}
+  @keyframes lean{0%,100%{transform:rotate(-32deg) translate(-4px,4px)}50%{transform:rotate(-26deg) translate(-4px,0)}}
+  .ringwrap .cup{position:absolute;right:14px;bottom:16px;font-size:20px;opacity:0;transform:scale(.4);transition:opacity .4s,transform .4s cubic-bezier(.3,1.6,.5,1)}
+  .ringwrap.break .cup{opacity:1;transform:scale(1);animation:sip 2.6s ease-in-out infinite}
+  @keyframes sip{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px) rotate(-6deg)}}
+  .ringwrap.idle .prg{stroke:#4a525b;filter:none}
+  .ringwrap.flash .prg{animation:ringflash .7s ease}
+  @keyframes ringflash{35%{stroke:#fff;stroke-width:11}}
+  .ringwrap.flash:before{content:"";position:absolute;inset:6px;border-radius:50%;border:2px solid #f5b942;animation:ripple .8s ease-out forwards}
+  @keyframes ripple{from{transform:scale(.8);opacity:1}to{transform:scale(1.45);opacity:0}}
+  .floor{position:absolute;left:0;right:0;top:0;height:100%;pointer-events:none;background:radial-gradient(60% 40% at 50% 0%,rgba(245,185,66,.10),transparent 70%)}
   .bar.ind i{width:35%;animation:ind 1.3s ease-in-out infinite}
   @keyframes ind{0%{transform:translateX(-110%)}100%{transform:translateX(300%)}}
   .counts{display:flex;justify-content:center;gap:22px;color:#9aa4ad;font-size:12.5px}
@@ -816,7 +849,8 @@
     const refresh = () => {
       const n = countFn();
       const sp = SPEEDS[S.settings.speed] || SPEEDS.safe;
-      const perHour = Math.min(S.settings.hourlyCap, Math.floor(3600 / ((sp[0] + sp[1]) / 2)));
+      const cycle = 20 * (sp[0] + sp[1]) / 2 + breakAvgMin() * 60; // 20 unfollows + one break, in seconds
+      const perHour = Math.max(1, Math.min(S.settings.hourlyCap, Math.floor(20 * 3600 / cycle)));
       const today = Math.max(0, S.settings.dailyCap - S.day.unf);
       const nowPart = Math.min(n, today);
       const mins = Math.ceil(nowPart / Math.max(1, perHour) * 60);
@@ -837,6 +871,8 @@
           v => { setting('hourlyCap', +v); done(); }),
         select('Per day', S.settings.dailyCap, withCurrent([[50, '50'], [100, '100'], [140, '140 (safe)'], [200, '200'], [300, '300']], S.settings.dailyCap),
           v => { setting('dailyCap', +v); done(); })),
+      select('Break every 15–25 unfollows', S.settings.breakLen, [[1, '1 minute'], [2, '2 minutes'], [5, '5 minutes'], [15, '10–20 minutes (safest)']],
+        v => { setting('breakLen', +v); trimBreak(); done(); }),
       est,
       h('p', { class: 'hint', text: 'Saved automatically and used every time until you change them. Changes apply straight away, even mid-queue.' }));
     box.refresh = refresh;
@@ -856,10 +892,16 @@
     rv = { count: h('div', { class: 'lsub' }), bar: h('div', { class: 'bar' }), fill: h('i'), counts: h('div', { class: 'counts' }), next: h('div', { class: 'list' }) };
     rv.bar.append(rv.fill);
     const broom = h('div', { class: 'sweep' + (running ? '' : ' still'), 'aria-hidden': 'true' }, '🧹');
+    const ringWrap = h('div', { class: 'ringwrap', 'aria-hidden': 'true' });
+    ringWrap.innerHTML = '<svg class="ring" viewBox="0 0 120 120"><circle class="trk" cx="60" cy="60" r="52"/><circle class="prg" cx="60" cy="60" r="52"/></svg>';
+    ringWrap.append(broom, h('span', { class: 'cup' }, '☕'));
+    rv.ring = ringWrap; rv.prg = ringWrap.querySelector('.prg');
+    rv.phase = h('div', { class: 'phase', text: running ? 'Unfollowing' : 'Queue paused' });
     const box = h('div', { class: 'loader' },
-      broom,
+      h('div', { class: 'floor', 'aria-hidden': 'true' }),
+      ringWrap,
       running ? h('div', { class: 'dust', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')) : h('div', { class: 'dust' }),
-      h('div', null, h('div', { class: 'phase', text: running ? 'Unfollowing' : 'Queue paused' }),
+      h('div', null, rv.phase,
         running ? h('span', { class: 'dots', 'aria-hidden': 'true' }, '...') : null),
       rv.count, rv.bar, rv.counts,
       running
@@ -886,6 +928,7 @@
     const bits = h('div', { class: 'burst', 'aria-hidden': 'true' }, [0, 1, 2, 3, 4, 5, 6, 7].map(i => h('i', { style: '--a:' + (i * 45) + 'deg' })));
     rv.box.append(chip, bits);
     rv.broom.classList.remove('swish'); void rv.broom.offsetWidth; rv.broom.classList.add('swish');
+    if (rv.ring) { rv.ring.classList.remove('flash'); void rv.ring.offsetWidth; rv.ring.classList.add('flash'); }
     setTimeout(() => { rv && rv.broom && rv.broom.classList.remove('swish'); }, 700);
     setTimeout(() => { chip.remove(); bits.remove(); }, 2300);
   }
@@ -901,6 +944,19 @@
       t = (S.waitLabel || 'Next unfollow') + ' in ' + (sec >= 60 ? Math.floor(sec / 60) + 'm ' + (sec % 60) + 's' : sec + 's');
     } else t = S.status;
     rv.count.textContent = t;
+    // Countdown ring: drains until the next unfollow; spins while unfollowing.
+    const C = 326.7;
+    const onBreak = running && /^Short break/.test(S.waitLabel || '') && S.nextAt > Date.now();
+    const waiting = running && S.nextAt > Date.now() && S.pauseUntil <= Date.now();
+    rv.ring.classList.toggle('break', onBreak);
+    rv.ring.classList.toggle('busy', running && !waiting && S.pauseUntil <= Date.now());
+    rv.ring.classList.toggle('idle', !running);
+    if (waiting) {
+      const total = Math.max(1000, S.waitTotal || (S.nextAt - Date.now()));
+      const frac = Math.max(0, Math.min(1, (S.nextAt - Date.now()) / total));
+      rv.prg.style.strokeDashoffset = String(C * (1 - frac));
+    } else rv.prg.style.strokeDashoffset = running ? String(C * 0.72) : String(C);
+    if (rv.phase) rv.phase.textContent = !running ? 'Queue paused' : onBreak ? 'Taking a breather' : 'Unfollowing';
     const target = Math.min(S.settings.dailyCap, S.day.unf + S.queue.length);
     rv.fill.style.width = (target ? Math.max(4, Math.min(100, S.day.unf / target * 100)) : 4) + '%';
     const hour = S.stamps.filter(x => x > Date.now() - 3600e3).length;
@@ -923,10 +979,10 @@
     ld.phase.textContent = prog.phase;
     ld.sub.textContent = prog.sub;
     const checking = prog.phase === 'Checking who is inactive';
-    ld.counts.replaceChildren(
+    ld.counts.replaceChildren(...[
       h('span', null, h('b', { text: String(prog.looked) }), 'looked at'),
       h('span', null, h('b', { text: String(prog.possible) }), 'possible'),
-      checking ? h('span', null, h('b', { text: prog.found + '/' + prog.target }), 'inactive found') : null);
+      checking ? h('span', null, h('b', { text: prog.found + '/' + prog.target }), 'inactive found') : null].filter(Boolean));
     const det = prog.pct >= 0;
     ld.bar.classList.toggle('ind', !det);
     ld.fill.style.width = det ? Math.max(4, prog.pct) + '%' : '';
@@ -1118,6 +1174,7 @@
     build();
     rollDay();
     if (S.running && S.queue.length) S.status = 'Resuming your queue…';
+    trimBreak();
     save();
     updateStats();
     setInterval(tick, 3000);
