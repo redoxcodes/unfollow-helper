@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X Unfollow Helper by Redox
 // @namespace    https://x.com/amredox
-// @version      1.0.3
+// @version      1.0.5
 // @description  Paced unfollowing on X with preview, skip mutuals, whitelist, inactive filter and hourly batches.
 // @author       Redox
 // @homepageURL  https://unfollow-helper.vercel.app/
@@ -144,6 +144,38 @@
     }).observe({ type: 'resource', buffered: true });
   } catch (e) {}
 
+  // Finds X's own "UserTweets" request details in X's script files,
+  // so activity checks work without opening a profile first.
+  async function discoverTpl() {
+    const srcs = new Set();
+    document.querySelectorAll('script[src]').forEach(s => srcs.add(s.src));
+    try { performance.getEntriesByType('resource').forEach(e => { if (/\.js(\?|$)/.test(e.name)) srcs.add(e.name); }); } catch (e) {}
+    const list = Array.from(srcs)
+      .filter(u => /twimg\.com|\/responsive-web\//.test(u))
+      .sort((a, b) => (/\/main\./.test(b) ? 1 : 0) - (/\/main\./.test(a) ? 1 : 0))
+      .slice(0, 40);
+    const re = /queryId:"([^"]+)",operationName:"UserTweets",operationType:"query",metadata:\{featureSwitches:\[([^\]]*)\]/;
+    for (const src of list) {
+      let text;
+      try { const r = await fetch(src); if (!r.ok) continue; text = await r.text(); } catch (e) { continue; }
+      const m = text.match(re);
+      if (!m) continue;
+      const features = {};
+      (m[2].match(/"([^"]+)"/g) || []).forEach(q => { features[q.slice(1, -1)] = false; });
+      const variables = { userId: '0', count: 10, includePromotedContent: false, withQuickPromoteEligibilityTweetFields: false, withVoice: true };
+      S.tpl = location.origin + '/i/api/graphql/' + m[1] + '/UserTweets?variables=' +
+        encodeURIComponent(JSON.stringify(variables)) + '&features=' + encodeURIComponent(JSON.stringify(features));
+      save();
+      return S.tpl;
+    }
+    return null;
+  }
+  async function getTpl() {
+    if (S.tpl) return S.tpl;
+    if (captureTpl()) return S.tpl;
+    return discoverTpl();
+  }
+
   async function lastPost(uid) {
     let url;
     try {
@@ -155,22 +187,42 @@
       url = u.toString();
     } catch (e) { S.tpl = null; return { error: 'Activity check needs a refresh. Open any profile, then scan again.', fatal: true }; }
 
+    const doFetch = u => fetch(u, {
+      credentials: 'include',
+      headers: {
+        authorization: 'Bearer ' + BEARER,
+        'x-csrf-token': cookie('ct0'),
+        'x-twitter-auth-type': 'OAuth2Session',
+        'x-twitter-active-user': 'yes',
+        'content-type': 'application/json',
+      },
+    });
     let res;
     try {
-      res = await fetch(url, {
-        credentials: 'include',
-        headers: {
-          authorization: 'Bearer ' + BEARER,
-          'x-csrf-token': cookie('ct0'),
-          'x-twitter-auth-type': 'OAuth2Session',
-          'x-twitter-active-user': 'yes',
-          'content-type': 'application/json',
-        },
-      });
+      res = await doFetch(url);
+      if (res.status === 400) {
+        // X lists any missing settings in the error; add them and try once more.
+        let txt = '';
+        try { txt = await res.clone().text(); } catch (e) {}
+        const m = txt.match(/cannot be null:\s*([^"]+)/i);
+        if (m) {
+          const u = new URL(url);
+          const f = JSON.parse(u.searchParams.get('features') || '{}');
+          m[1].split(',').map(x => x.trim()).filter(Boolean).forEach(k => { f[k] = false; });
+          u.searchParams.set('features', JSON.stringify(f));
+          url = u.toString();
+          res = await doFetch(url);
+          if (res.ok) {
+            const t = new URL(url); const v = JSON.parse(t.searchParams.get('variables') || '{}');
+            v.userId = '0'; t.searchParams.set('variables', JSON.stringify(v));
+            S.tpl = t.toString(); save();
+          }
+        }
+      }
     } catch (e) { return { error: 'Network problem during activity check. Check your connection.', fatal: true }; }
 
     if (res.status === 429) return { error: 'X paused activity checks for now. Try again in a few hours.', fatal: true };
-    if (!res.ok) { S.tpl = null; save(); return { error: 'Activity check failed (' + res.status + '). Open any profile, then scan again.', fatal: true }; }
+    if (!res.ok) { S.tpl = null; save(); return { error: 'Activity check failed (' + res.status + '). Open any profile once, then scan again. If it keeps failing, use "Any account" for now.', fatal: true }; }
 
     let data;
     try { data = await res.json(); } catch (e) { return { error: 'X sent an unreadable reply. Try again later.', fatal: true }; }
@@ -262,19 +314,30 @@
   }
 
   /* ---------- scan and preview ---------- */
+  const prog = { phase: '', sub: '', looked: 0, possible: 0, checked: 0, found: 0, target: 0, pct: -1 };
+  function setProg(p) { Object.assign(prog, p); updateLoader(); }
   async function scan() {
     if (job) return;
     if (!isFollowingPage()) { setStatus('Open your Following page first, then scan.'); render(); return; }
     if (!checkOwnList()) return;
 
     const o = S.opts;
-    if (o.months && !captureTpl()) {
-      setStatus('To check activity, open any profile once (tap a name), scroll a little, come back here and scan again.');
-      render(); return;
-    }
     rollDay();
     const my = job = { stop: false, kind: 'scan' };
-    S.preview = []; save(); render();
+    S.preview = []; save();
+    Object.assign(prog, { phase: 'Getting ready', sub: 'Going to the top of your list', looked: 0, possible: 0, checked: 0, found: 0, target: o.count, pct: -1 });
+    sheet.classList.remove('hidden');
+    render();
+
+    if (o.months) {
+      setProg({ phase: 'Getting ready', sub: 'Setting up activity checks' });
+      setStatus('Setting up activity checks…');
+      if (!(await getTpl())) {
+        if (job === my) job = null;
+        setStatus('Could not set up activity checks. Open any profile once (tap a name), scroll a little, come back here and scan again.');
+        render(); return;
+      }
+    }
 
     window.scrollTo(0, 0);
     await sleep(1800);
@@ -299,6 +362,9 @@
         pool.push({ handle: i.handle, name: i.name, id: i.id, idx: pool.length });
       }
       setStatus('Scanning: ' + seen.size + ' accounts looked at, ' + pool.length + ' possible');
+      setProg({ phase: 'Scanning your list', sub: o.dir === 'oldest' ? 'Scrolling to your oldest follows' : 'Reading your newest follows',
+        looked: seen.size, possible: pool.length,
+        pct: (o.dir === 'newest' && !o.months) ? Math.min(100, pool.length / o.count * 100) : -1 });
       if (o.dir === 'newest' && !o.months && pool.length >= o.count) break;
       if (o.dir === 'newest' && o.months && pool.length >= Math.min(checkRoom, 400)) break;
       if (seen.size > 6000) break;
@@ -319,10 +385,12 @@
         rollDay();
         if (S.day.checks >= CFG.dailyCheckCap) { note = ' Daily activity-check limit reached, scan again tomorrow for more.'; break; }
         setStatus('Checking activity: found ' + picked.length + ' of ' + o.count + ' (checking @' + u.handle + ')');
+        setProg({ phase: 'Checking who is inactive', sub: 'Looking at @' + u.handle, checked: prog.checked + 1,
+          found: picked.length, pct: Math.min(100, picked.length / o.count * 100) });
         const r = await lastPost(u.id);
         S.day.checks++; save();
         if (r.error) { note = ' ' + r.error; if (r.fatal) break; continue; }
-        if (!r.last || r.last < cutoff) { u.last = r.last || 0; picked.push(u); if (picked.length >= o.count) break; }
+        if (!r.last || r.last < cutoff) { u.last = r.last || 0; picked.push(u); setProg({ found: picked.length, pct: Math.min(100, picked.length / o.count * 100) }); if (picked.length >= o.count) break; }
         await sleepUntil(Date.now() + rnd(CFG.checkMinSec, CFG.checkMaxSec) * 1000, my);
       }
     }
@@ -510,6 +578,25 @@
   details summary:after{content:"＋";float:right;color:#9aa4ad}
   details[open] summary:after{content:"－"}
   .support{width:100%;margin-top:14px;background:#1b1e22;color:#f5b942;border:1px solid #3a3322}
+  .loader{background:#1b1e22;border-radius:18px;padding:22px 16px 18px;margin:12px 0;text-align:center;position:relative;overflow:hidden}
+  .sweep{font-size:46px;display:inline-block;transform-origin:50% 85%;animation:sweep .9s ease-in-out infinite alternate}
+  @keyframes sweep{from{transform:rotate(-20deg) translateX(-6px)}to{transform:rotate(20deg) translateX(6px)}}
+  .dust{height:10px;position:relative;margin:-4px auto 6px;width:90px}
+  .dust i{position:absolute;bottom:0;width:6px;height:6px;border-radius:3px;background:#f5b942;opacity:0;animation:dust 1.8s ease-out infinite}
+  .dust i:nth-child(1){left:20px}.dust i:nth-child(2){left:44px;animation-delay:.6s}.dust i:nth-child(3){left:66px;animation-delay:1.2s}
+  @keyframes dust{0%{opacity:.8;transform:translate(0,0) scale(1)}100%{opacity:0;transform:translate(14px,-18px) scale(.3)}}
+  .phase{display:inline;font-weight:800;font-size:18px;color:#fff}
+  .dots{display:inline-block;width:0;overflow:hidden;vertical-align:bottom;font-weight:800;font-size:18px;color:#fff;animation:dots 1.2s steps(4,end) infinite}
+  @keyframes dots{to{width:1.1em}}
+  .lsub{color:#9aa4ad;font-size:14px;margin-top:4px;min-height:1.4em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar{height:8px;background:#2a2f35;border-radius:99px;overflow:hidden;margin:16px 0 14px}
+  .bar i{display:block;height:100%;width:4%;background:#f5b942;border-radius:99px;transition:width .5s ease}
+  .bar.ind i{width:35%;animation:ind 1.3s ease-in-out infinite}
+  @keyframes ind{0%{transform:translateX(-110%)}100%{transform:translateX(300%)}}
+  .counts{display:flex;justify-content:center;gap:22px;color:#9aa4ad;font-size:12.5px}
+  .counts span{display:flex;flex-direction:column;align-items:center}
+  .counts b{color:#f5b942;font-size:22px;font-weight:800;line-height:1.2}
+  @media (prefers-reduced-motion:reduce){.sweep,.dust i,.dots,.bar.ind i{animation:none}.dots{width:auto}.dust{display:none}}
   .foot{text-align:center;margin-top:16px;color:#9aa4ad;font-size:13px}
   .foot a{color:#1d9bf0;text-decoration:none;font-weight:700;display:inline-block;margin-top:2px}
   .modal{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:2147483647;display:flex;align-items:flex-end}
@@ -519,7 +606,7 @@
   .addr{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;word-break:break-all;color:#e8eaed;margin:6px 0 10px}
   `;
 
-  let host, root, sheet, bodyEl, fab, statusEl, statsEl;
+  let host, root, sheet, bodyEl, fab, statusEl, statsEl, ld = null;
 
   function h(tag, attrs, ...kids) {
     const e = document.createElement(tag);
@@ -569,6 +656,40 @@
   }
   function setStatus(t) { S.status = t; save(); updateStats(); }
 
+  function updateLoader() {
+    if (!ld) return;
+    ld.phase.textContent = prog.phase;
+    ld.sub.textContent = prog.sub;
+    const checking = prog.phase === 'Checking who is inactive';
+    ld.counts.replaceChildren(
+      h('span', null, h('b', { text: String(prog.looked) }), 'looked at'),
+      h('span', null, h('b', { text: String(prog.possible) }), 'possible'),
+      checking ? h('span', null, h('b', { text: prog.found + '/' + prog.target }), 'inactive found') : null);
+    const det = prog.pct >= 0;
+    ld.bar.classList.toggle('ind', !det);
+    ld.fill.style.width = det ? Math.max(4, prog.pct) + '%' : '';
+    ld.hint.textContent = checking ? 'Each check takes 10–20 seconds so X stays happy. Keep this screen open.' : 'Keep this screen open. The page scrolls by itself.';
+  }
+  function loaderBlock() {
+    ld = {
+      phase: h('div', { class: 'phase' }),
+      sub: h('div', { class: 'lsub' }),
+      bar: h('div', { class: 'bar' }),
+      fill: h('i'),
+      counts: h('div', { class: 'counts' }),
+      hint: h('p', { class: 'hint' }),
+    };
+    ld.bar.append(ld.fill);
+    const box = h('div', { class: 'loader' },
+      h('div', { class: 'sweep', 'aria-hidden': 'true' }, '🧹'),
+      h('div', { class: 'dust', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')),
+      h('div', null, ld.phase, h('span', { class: 'dots', 'aria-hidden': 'true' }, '...')),
+      ld.sub, ld.bar, ld.counts, ld.hint,
+      h('button', { class: 'b stop', style: 'margin-top:12px', onclick: stopAll }, 'Stop scan'));
+    updateLoader();
+    return box;
+  }
+
   function setting(key, val) { S.settings[key] = val; save(); updateStats(); }
   function numField(label, key, min, max) {
     return h('label', { class: 'field' }, h('span', { text: label }),
@@ -597,13 +718,14 @@
     updateStats();
     if (!sheet || sheet.classList.contains('hidden')) return;
     const busy = !!job;
+    ld = null;
     const onPage = isFollowingPage();
 
     statusEl = h('div', { class: 'msg', text: S.status });
     statsEl = h('div', { class: 'stats' });
 
     const controls = h('div', { class: 'row', style: 'margin-top:10px' },
-      busy ? h('button', { class: 'b stop', onclick: stopAll }, job.kind === 'scan' ? 'Stop scan' : 'Stop') : null,
+      busy && job.kind === 'run' ? h('button', { class: 'b stop', onclick: stopAll }, 'Stop') : null,
       !busy && S.queue.length ? h('button', { class: 'b', onclick: run }, S.running ? 'Resume' : 'Start queue') : null,
       !busy && S.queue.length ? h('button', { class: 'b ghost small', onclick: () => { if (confirm('Remove all ' + S.queue.length + ' accounts from the queue?')) { S.queue = []; S.running = false; save(); setStatus('Queue cleared.'); render(); } } }, 'Clear queue') : null,
       !onPage ? h('button', { class: 'b ghost small', onclick: goToFollowing }, 'Open my Following page') : null,
@@ -689,6 +811,7 @@
         h('button', { class: 'x', 'aria-label': 'Close', onclick: () => sheet.classList.add('hidden') }, '×')),
       h('div', { class: 'status' }, statusEl, statsEl, controls),
       !onPage && !busy ? h('p', { class: 'hint', text: 'Works on your own Following page: Profile, then Following.' }) : null,
+      busy && job.kind === 'scan' ? loaderBlock() : null,
       previewBlock, scanBlock, settingsBlock, logBlock,
       h('button', { class: 'b support', onclick: openDonate }, '💛 Support the dev'),
       h('div', { class: 'foot' },
