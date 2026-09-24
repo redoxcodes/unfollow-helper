@@ -3,175 +3,277 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>X Unfollow Helper by Redox</title>
-<meta name="description" content="Free tool to clean up who you follow on X. Preview first, skip people who follow you back, remove inactive accounts, safe pacing. Runs on your own phone.">
-<meta property="og:title" content="X Unfollow Helper by Redox">
-<meta property="og:description" content="Clean up who you follow on X. Free, runs on your own phone, no login.">
+<title>X Unfollow Helper: unfollow the dead weight</title>
+<meta name="description" content="Free tool for X. Finds inactive and non-mutual accounts, you approve the list, it unfollows in calm, paced batches. Runs in your own browser.">
+<meta name="theme-color" content="#0d0f12">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://unfollow-helper.vercel.app/">
+<meta property="og:title" content="X Unfollow Helper: unfollow the dead weight">
+<meta property="og:description" content="Free tool: finds inactive and non-mutual accounts on X, you approve, it unfollows in paced batches.">
+<meta property="og:image" content="https://unfollow-helper.vercel.app/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@amredox">
+<meta name="twitter:image" content="https://unfollow-helper.vercel.app/og.png">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧹</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;700;800&display=swap" rel="stylesheet">
 <style>
   :root{
-    --paper:#eef2f5; --ink:#0e1a2b; --slate:#566779; --line:#d3dbe3;
-    --amber:#f2b33d; --amber-deep:#9a6a0c; --panel:#121519; --panel-2:#1b1f24; --panel-text:#e8eaed;
-    --display:"Bricolage Grotesque", ui-rounded, system-ui, sans-serif;
+    --bg:#0d0f12; --bg2:#14171b; --card:#1b1e22; --line:#262b31;
+    --text:#e8eaed; --dim:#9aa4ad; --amber:#f5b942; --amber2:#ffd27a; --teal:#5cc8e0; --red:#f4212e;
+    --display:"Poppins", ui-rounded, system-ui, sans-serif;
     --body:-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   }
   *{box-sizing:border-box}
-  html{-webkit-text-size-adjust:100%}
-  body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 var(--body);
-       padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+  html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 var(--body);
+       padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);overflow-x:hidden}
   a{color:inherit}
-  .wrap{max-width:1040px;margin:0 auto;padding:0 20px}
-  :focus-visible{outline:3px solid var(--amber);outline-offset:3px;border-radius:6px}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 20px}
+  :focus-visible{outline:3px solid var(--amber);outline-offset:3px;border-radius:8px}
+  .glow{position:absolute;inset:0 0 auto 0;height:720px;pointer-events:none;
+        background:radial-gradient(50% 60% at 80% 10%,rgba(245,185,66,.18),transparent 70%),radial-gradient(40% 40% at 5% 30%,rgba(92,200,224,.07),transparent 70%)}
 
-  /* top bar */
-  .bar{display:flex;align-items:center;justify-content:space-between;padding:18px 0}
-  .brand{font:800 18px/1 var(--display);text-decoration:none;display:flex;gap:8px;align-items:center}
-  .bar a.x{font-weight:600;font-size:14px;color:var(--slate);text-decoration:none}
+  /* bar */
+  .bar{position:sticky;top:0;z-index:10;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+       background:rgba(13,15,18,.72);border-bottom:1px solid transparent;transition:border-color .3s}
+  .bar.scrolled{border-bottom-color:var(--line)}
+  .bar .wrap{display:flex;align-items:center;justify-content:space-between;height:60px}
+  .brand{font:800 17px/1 var(--display);text-decoration:none;display:flex;gap:8px;align-items:center}
+  .bar .go{font:700 14px var(--body);text-decoration:none;background:var(--amber);color:#1a1400;padding:9px 16px;border-radius:999px}
 
   /* hero */
-  .hero{display:grid;gap:34px;padding:22px 0 56px;align-items:center}
-  h1{font:800 clamp(40px,11vw,76px)/.95 var(--display);letter-spacing:-.02em;margin:0 0 18px}
-  h1 .strike{position:relative;color:var(--slate)}
-  h1 .strike:after{content:"";position:absolute;left:-4%;right:-4%;top:52%;height:.12em;background:var(--amber);border-radius:4px;transform:rotate(-3deg)}
-  .lede{font-size:18px;max-width:34em;margin:0 0 26px;color:#26374b}
+  .hero{position:relative;display:grid;gap:44px;padding:38px 0 70px;align-items:center}
+  .eyebrow{display:inline-flex;gap:8px;align-items:center;font:600 13px var(--body);color:var(--amber);
+           background:rgba(245,185,66,.1);border:1px solid rgba(245,185,66,.25);padding:6px 12px;border-radius:999px;margin-bottom:18px}
+  .eyebrow i{width:7px;height:7px;border-radius:50%;background:var(--amber);box-shadow:0 0 0 0 rgba(245,185,66,.6);animation:ping 2s infinite}
+  @keyframes ping{70%{box-shadow:0 0 0 8px rgba(245,185,66,0)}100%{box-shadow:0 0 0 0 rgba(245,185,66,0)}}
+  h1{font:800 clamp(44px,12vw,82px)/.98 var(--display);letter-spacing:-.03em;margin:0 0 20px}
+  h1 span{color:var(--amber)}
+  .lede{font-size:18.5px;color:#c8ced4;max-width:32em;margin:0 0 28px}
   .cta{display:flex;gap:12px;flex-wrap:wrap}
-  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:999px;padding:14px 22px;
-       font-weight:700;font-size:16px;text-decoration:none;border:0;cursor:pointer;font-family:inherit}
-  .btn.primary{background:var(--ink);color:#fff}
-  .btn.soft{background:transparent;color:var(--ink);box-shadow:inset 0 0 0 2px var(--ink)}
-  .facts{margin:22px 0 0;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:8px}
-  .facts li{background:#fff;border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:14px;color:#26374b}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:999px;padding:15px 24px;
+       font:700 16px var(--body);text-decoration:none;border:0;cursor:pointer;transition:transform .15s}
+  .btn:active{transform:scale(.97)}
+  .btn.primary{background:var(--amber);color:#1a1400;box-shadow:0 10px 30px -10px rgba(245,185,66,.7)}
+  .btn.ghost{background:transparent;color:var(--text);box-shadow:inset 0 0 0 1.5px #3a4047}
+  .trust{display:flex;flex-wrap:wrap;gap:8px 18px;margin:24px 0 0;padding:0;list-style:none;color:var(--dim);font-size:14px}
+  .trust li:before{content:"✓";color:var(--amber);font-weight:800;margin-right:6px}
 
-  /* the mock panel */
-  .phone{background:var(--panel);color:var(--panel-text);border-radius:26px;padding:18px;max-width:380px;width:100%;
-         justify-self:center;box-shadow:0 30px 60px -20px rgba(14,26,43,.45)}
-  .phone .t{display:flex;justify-content:space-between;align-items:center;font-weight:800;font-size:17px;color:#fff}
-  .phone .t span{color:#8d99a6;font-size:22px;font-weight:400}
-  .phone .st{background:var(--panel-2);border-radius:14px;padding:12px;margin:12px 0}
-  .phone .st b{color:#fff;font-weight:600}
-  .phone .nums{display:flex;gap:14px;margin-top:6px;font-size:13px;color:#8d99a6}
-  .phone .nums em{font-style:normal;color:var(--amber);font-weight:700;font-size:15px}
-  .phone .q{font-size:13px;color:#8d99a6;margin:4px 2px 8px}
-  .phone .it{display:flex;gap:12px;align-items:center;padding:10px 4px;border-top:1px solid #23282e}
-  .phone .box{width:20px;height:20px;border-radius:5px;background:var(--amber);flex:none;display:grid;place-items:center;color:#1a1400;font-size:13px;font-weight:900}
-  .phone .box.off{background:transparent;box-shadow:inset 0 0 0 2px #4a525b}
-  .phone .it div{min-width:0}
-  .phone .it b{color:#fff;display:block}
-  .phone .it small{color:#8d99a6}
-  .phone .go{margin-top:12px;background:var(--amber);color:#1a1400;border-radius:999px;text-align:center;padding:11px;font-weight:800}
+  /* live demo panel */
+  .demo{justify-self:center;width:100%;max-width:370px;background:var(--card);border:1px solid #2c3036;border-radius:28px;
+        padding:22px 20px;box-shadow:0 40px 80px -30px rgba(0,0,0,.8),0 0 0 8px rgba(255,255,255,.02);position:relative;overflow:hidden}
+  .demo .top{display:flex;justify-content:space-between;align-items:center;font:800 16px var(--display)}
+  .demo .top span{color:var(--dim);font-weight:400;font-size:22px}
+  .stage{position:relative;text-align:center;padding:18px 0 6px}
+  .ring{position:relative;width:132px;height:132px;margin:0 auto;display:grid;place-items:center}
+  .ring svg{position:absolute;inset:0;transform:rotate(-90deg)}
+  .ring circle{fill:none;stroke-width:6}
+  .ring .trk{stroke:#2a2f35}
+  .ring .prg{stroke:var(--amber);stroke-linecap:round;stroke-dasharray:345.6;filter:drop-shadow(0 0 6px rgba(245,185,66,.55));
+             animation:drain 5s linear infinite}
+  @keyframes drain{0%{stroke-dashoffset:0}88%{stroke-dashoffset:345.6}100%{stroke-dashoffset:345.6}}
+  .broom{font-size:50px;animation:rock 5s ease-in-out infinite;transform-origin:50% 85%}
+  @keyframes rock{0%,80%{transform:rotate(-12deg)}40%{transform:rotate(12deg)}88%{transform:rotate(-38deg) translateX(-8px)}94%{transform:rotate(32deg) translateX(12px)}100%{transform:rotate(-12deg)}}
+  .tag{position:absolute;left:50%;top:62px;display:flex;flex-direction:column;align-items:center;gap:5px;opacity:0;animation:tag 5s infinite}
+  .tag b{position:relative;background:#e8eaed;color:#0f1419;border-radius:999px;padding:6px 13px;font-size:14px;white-space:nowrap;box-shadow:0 8px 20px rgba(0,0,0,.45)}
+  .tag b:after{content:"";position:absolute;left:10px;right:10px;top:50%;height:2.5px;background:var(--red);border-radius:2px;transform:scaleX(0);transform-origin:left;animation:strike 5s infinite}
+  .tag small{color:var(--amber);font-weight:800;font-size:12px}
+  @keyframes tag{0%,86%{opacity:0;transform:translate(-50%,12px) scale(.85)}89%{opacity:1;transform:translate(-50%,0) scale(1)}95%{opacity:1;transform:translate(-50%,0)}100%{opacity:0;transform:translate(60%,-40px) rotate(16deg) scale(.75)}}
+  @keyframes strike{0%,89%{transform:scaleX(0)}92%,100%{transform:scaleX(1)}}
+  .demo h4{font:800 19px var(--display);margin:10px 0 2px}
+  .demo .sub{color:var(--dim);font-size:14px}
+  .dbar{height:8px;background:#2a2f35;border-radius:99px;overflow:hidden;margin:16px 0 14px}
+  .dbar i{display:block;height:100%;width:62%;border-radius:99px;background:linear-gradient(90deg,#e0a02e,var(--amber) 60%,var(--amber2));position:relative;overflow:hidden}
+  .dbar i:after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent 20%,rgba(255,255,255,.55) 50%,transparent 80%);transform:translateX(-120%);animation:shine 2.4s ease-in-out infinite}
+  @keyframes shine{60%,100%{transform:translateX(120%)}}
+  .nums{display:flex;justify-content:space-around;color:var(--dim);font-size:12.5px;text-align:center}
+  .nums b{display:block;color:var(--amber);font:800 22px/1.2 var(--display)}
+  .next{margin-top:16px;border-top:1px solid var(--line);padding-top:12px}
+  .next p{margin:0 0 6px;font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em}
+  .row{display:flex;align-items:center;gap:10px;padding:7px 0;font-size:14px}
+  .row .av{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#3a4047,#2a2f35);flex:none}
+  .row small{color:var(--dim);margin-left:auto;font-size:12px}
 
   /* sections */
-  section{padding:56px 0;border-top:1px solid var(--line)}
-  h2{font:800 clamp(28px,6vw,40px)/1.05 var(--display);letter-spacing:-.01em;margin:0 0 10px}
-  .sub{color:var(--slate);margin:0 0 30px;max-width:36em}
+  section{padding:70px 0;position:relative}
+  .kicker{font:700 13px var(--body);color:var(--amber);letter-spacing:.1em;text-transform:uppercase;margin:0 0 10px}
+  h2{font:800 clamp(30px,7vw,46px)/1.05 var(--display);letter-spacing:-.02em;margin:0 0 14px}
+  .sub2{color:var(--dim);max-width:36em;margin:0 0 36px;font-size:17px}
 
-  .feat{display:grid;gap:26px 40px;margin:0}
-  .feat div{border-left:3px solid var(--amber);padding-left:16px}
-  .feat dt{font-weight:800;font-size:17px;margin-bottom:4px}
-  .feat dd{margin:0;color:#3a4a5c}
+  .steps{display:grid;gap:14px;counter-reset:s}
+  .step{background:var(--bg2);border:1px solid var(--line);border-radius:20px;padding:22px;counter-increment:s;position:relative}
+  .step:before{content:counter(s);font:800 44px/1 var(--display);color:rgba(245,185,66,.9);display:block;margin-bottom:10px}
+  .step h3{font:700 19px var(--display);margin:0 0 6px}
+  .step p{margin:0;color:var(--dim)}
 
-  /* install tabs */
-  .tabs{display:flex;gap:6px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:5px;width:max-content;max-width:100%;overflow-x:auto;margin-bottom:24px}
-  .tabs button{border:0;background:none;border-radius:999px;padding:10px 16px;font:600 15px var(--body);color:var(--slate);cursor:pointer;white-space:nowrap}
-  .tabs button[aria-selected="true"]{background:var(--ink);color:#fff}
-  .steps{counter-reset:s;list-style:none;margin:0;padding:0;max-width:640px}
-  .steps li{counter-increment:s;position:relative;padding:0 0 22px 50px}
-  .steps li:before{content:counter(s);position:absolute;left:0;top:-2px;width:34px;height:34px;border-radius:50%;
-                   background:var(--ink);color:#fff;display:grid;place-items:center;font:800 15px var(--display)}
-  .steps li:not(:last-child):after{content:"";position:absolute;left:16px;top:36px;bottom:4px;width:2px;background:var(--line)}
-  .steps b{display:block;margin-bottom:2px}
-  .steps p{margin:0;color:#3a4a5c}
-  .steps .btn{margin-top:10px}
-  .note{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;color:#3a4a5c;max-width:640px;margin-top:6px}
+  .feats{display:grid;gap:12px}
+  .feat{padding:20px 22px;border-radius:18px;background:linear-gradient(180deg,var(--bg2),rgba(20,23,27,.4));border:1px solid var(--line)}
+  .feat h3{font:700 17px var(--display);margin:0 0 4px;display:flex;gap:10px;align-items:center}
+  .feat h3 em{font-style:normal;font-size:20px}
+  .feat p{margin:0;color:var(--dim);font-size:15px}
+
+  .screen{background:linear-gradient(135deg,rgba(92,200,224,.12),rgba(92,200,224,.03));border:1px solid rgba(92,200,224,.3);
+          border-radius:24px;padding:26px 22px;display:grid;gap:22px}
+  .screen h2{font-size:clamp(26px,6vw,36px)}
+  .screen ul{margin:0;padding:0;list-style:none;display:grid;gap:12px}
+  .screen li{background:rgba(13,15,18,.55);border-radius:14px;padding:14px 16px}
+  .screen li b{display:block;font-family:var(--display);margin-bottom:2px}
+  .screen li span{color:var(--dim);font-size:15px}
+
+  .tabs{display:flex;gap:6px;background:var(--bg2);border:1px solid var(--line);border-radius:999px;padding:5px;width:max-content;max-width:100%;overflow-x:auto;margin-bottom:26px}
+  .tabs button{border:0;background:none;border-radius:999px;padding:10px 18px;font:700 15px var(--body);color:var(--dim);cursor:pointer;white-space:nowrap}
+  .tabs button[aria-selected="true"]{background:var(--amber);color:#1a1400}
+  ol.list{counter-reset:k;list-style:none;margin:0;padding:0;max-width:640px}
+  ol.list li{counter-increment:k;position:relative;padding:0 0 24px 52px}
+  ol.list li:before{content:counter(k);position:absolute;left:0;top:-2px;width:36px;height:36px;border-radius:50%;background:var(--card);
+                    border:1.5px solid var(--amber);color:var(--amber);display:grid;place-items:center;font:800 15px var(--display)}
+  ol.list li:not(:last-child):after{content:"";position:absolute;left:17px;top:38px;bottom:4px;width:2px;background:var(--line)}
+  ol.list b{display:block;font-family:var(--display);margin-bottom:2px}
+  ol.list p{margin:0;color:var(--dim)}
+  ol.list .btn{margin-top:12px}
+  .note{background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:14px 16px;color:var(--dim);max-width:640px;font-size:15px}
   [hidden]{display:none!important}
 
-  /* safety */
-  .rules{display:grid;gap:14px;max-width:760px;padding:0;margin:0;list-style:none}
-  .rules li{display:flex;gap:14px;align-items:baseline}
-  .rules strong{font:800 22px var(--display);min-width:74px;color:var(--amber-deep)}
-  .fine{color:var(--slate);font-size:14px;max-width:44em;margin-top:22px}
+  .faq{max-width:760px}
+  .faq details{border-bottom:1px solid var(--line);padding:4px 0}
+  .faq summary{list-style:none;cursor:pointer;padding:16px 36px 16px 0;font:700 17px var(--display);position:relative}
+  .faq summary::-webkit-details-marker{display:none}
+  .faq summary:after{content:"+";position:absolute;right:4px;top:12px;font:400 26px var(--body);color:var(--amber);transition:transform .25s}
+  .faq details[open] summary:after{transform:rotate(45deg)}
+  .faq p{margin:0 0 18px;color:var(--dim)}
 
-  /* support */
   .coins{display:grid;gap:12px;max-width:640px}
-  .coin{background:var(--panel);color:var(--panel-text);border-radius:16px;padding:16px;display:grid;gap:10px}
+  .coin{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;display:grid;gap:10px}
   .coin .h{display:flex;justify-content:space-between;align-items:center}
-  .coin .h strong{color:var(--amber);font:800 18px var(--display)}
-  .coin code{font:13px/1.45 ui-monospace,Menlo,monospace;word-break:break-all;color:#fff}
-  .coin button{border:0;border-radius:999px;background:#e8eaed;color:#0f1419;font:700 14px var(--body);padding:8px 14px;cursor:pointer}
+  .coin strong{color:var(--amber);font:800 18px var(--display)}
+  .coin code{font:13px/1.45 ui-monospace,Menlo,monospace;word-break:break-all}
+  .coin button{border:0;border-radius:999px;background:#e8eaed;color:#0f1419;font:700 14px var(--body);padding:8px 15px;cursor:pointer}
+  .fine{color:var(--dim);font-size:14px;max-width:46em}
 
-  footer{border-top:1px solid var(--line);padding:34px 0 46px;text-align:center;color:var(--slate)}
-  footer .made{font:800 22px var(--display);color:var(--ink);margin-bottom:6px}
+  footer{border-top:1px solid var(--line);padding:40px 0 50px;text-align:center;color:var(--dim)}
+  footer .made{font:800 24px var(--display);color:var(--text);margin-bottom:6px}
   footer a{color:#1d9bf0;font-weight:700;text-decoration:none}
 
-  @media (min-width:820px){
-    .hero{grid-template-columns:1.15fr .85fr;padding:40px 0 80px}
-    .feat{grid-template-columns:1fr 1fr}
-    .coins{grid-template-columns:1fr}
+  .reveal{opacity:0;transform:translateY(18px);transition:opacity .7s ease,transform .7s ease}
+  .reveal.in{opacity:1;transform:none}
+
+  @media (min-width:840px){
+    .hero{grid-template-columns:1.1fr .9fr;padding:60px 0 100px}
+    .steps{grid-template-columns:repeat(3,1fr)}
+    .feats{grid-template-columns:repeat(3,1fr)}
+    .screen{grid-template-columns:.9fr 1.1fr;align-items:center;padding:36px}
   }
-  @media (prefers-reduced-motion:no-preference){
-    .phone .it.gone{animation:gone 3.2s ease-in-out 1s infinite}
-    @keyframes gone{0%,55%{opacity:1}70%,100%{opacity:.35}}
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important}
+    .reveal{opacity:1;transform:none}
+    .ring .prg{stroke-dashoffset:120}
   }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header class="bar">
-    <a class="brand" href="#top">🧹 Unfollow Helper</a>
-    <a class="x" href="https://x.com/amredox" target="_blank" rel="noopener">@amredox</a>
-  </header>
+<div class="glow" aria-hidden="true"></div>
 
-  <main id="top">
+<header class="bar" id="bar">
+  <div class="wrap">
+    <a class="brand" href="#top">🧹 Unfollow Helper</a>
+    <a class="go" href="#install">Install free</a>
+  </div>
+</header>
+
+<main id="top">
+  <div class="wrap">
     <div class="hero">
       <div>
-        <h1>Clean up who you follow on X.</h1>
-        <p class="lede">A free tool that unfollows accounts in slow, safe batches. You see the list first, it skips people who follow you back, and it can find accounts that stopped posting months ago.</p>
+        <div class="eyebrow"><i></i>Free for everyone on X</div>
+        <h1>Unfollow the <span>dead weight.</span></h1>
+        <p class="lede">Find the accounts that stopped posting months ago or never follow you back. You check the list, then it unfollows them in calm, paced batches, right from your phone.</p>
         <div class="cta">
           <a class="btn primary" href="#install">Install it free</a>
-          <a class="btn soft" href="#how">See what it does</a>
+          <a class="btn ghost" href="#how">See how it works</a>
         </div>
-        <ul class="facts">
-          <li>Free forever</li>
-          <li>Runs on your own phone</li>
-          <li>No login or password</li>
-          <li>iPhone, Android, computer</li>
+        <ul class="trust">
+          <li>Never asks for your password</li>
+          <li>You approve every account</li>
+          <li>iPhone, Android and computer</li>
         </ul>
       </div>
 
-      <div class="phone" aria-label="Preview of the tool's panel">
-        <div class="t">🧹 X Unfollow Helper <span>×</span></div>
-        <div class="st">
-          <b>Next unfollow at 10:42.</b>
-          <div class="nums"><span>Today <em>37/140</em></span><span>This hour <em>12/35</em></span><span>Queue <em>103</em></span></div>
+      <div class="demo" aria-label="Animated preview of the tool unfollowing accounts">
+        <div class="top">🧹 X Unfollow Helper <span>×</span></div>
+        <div class="stage">
+          <div class="ring">
+            <svg viewBox="0 0 120 120"><circle class="trk" cx="60" cy="60" r="55"/><circle class="prg" cx="60" cy="60" r="55"/></svg>
+            <div class="broom">🧹</div>
+          </div>
+          <div class="tag"><b>@giveaway_2023</b><small>Unfollowed ✓</small></div>
+          <h4>Unfollowing…</h4>
+          <div class="sub">Next unfollow in a few seconds</div>
         </div>
-        <div class="q">Preview: untick anyone you want to keep</div>
-        <div class="it gone"><span class="box">✓</span><div><b>@oldpromo_acct</b><small>Last post 14 months ago</small></div></div>
-        <div class="it"><span class="box">✓</span><div><b>@quietfarmer</b><small>No posts found</small></div></div>
-        <div class="it"><span class="box off"></span><div><b>@mybestfriend</b><small>Kept by you</small></div></div>
-        <div class="it"><span class="box">✓</span><div><b>@giveaway_2023</b><small>Last post 9 months ago</small></div></div>
-        <div class="go">Unfollow 3 selected</div>
+        <div class="dbar"><i></i></div>
+        <div class="nums"><span><b>87</b>done today</span><span><b>53</b>left</span><span><b>31/50</b>this hour</span></div>
+        <div class="next">
+          <p>Up next</p>
+          <div class="row"><span class="av"></span>@quietfarmer<small>No posts</small></div>
+          <div class="row"><span class="av"></span>@oldpromo_acct<small>14 mo ago</small></div>
+          <div class="row"><span class="av"></span>@nft_drops_22<small>9 mo ago</small></div>
+        </div>
       </div>
     </div>
+  </div>
 
-    <section id="how">
-      <h2>What it does</h2>
-      <p class="sub">Everything happens on your Following page, inside your own browser. Nothing is unfollowed until you approve the list.</p>
-      <dl class="feat">
-        <div><dt>Preview before anything happens</dt><dd>Scan your newest or oldest follows, see every account it picked, and untick the ones you want to keep.</dd></div>
-        <div><dt>Keeps people who follow you back</dt><dd>Anyone showing "Follows you" is skipped automatically. You can turn this off.</dd></div>
-        <div><dt>Finds inactive accounts</dt><dd>Only pick accounts that haven't posted in 3, 5 or 6 months, or have never posted.</dd></div>
-        <div><dt>Slow, human-like pacing</dt><dd>Random 30–60 second gaps, short breaks, hourly batches and a daily limit you set.</dd></div>
-        <div><dt>Never-unfollow list</dt><dd>Add friends and favourite accounts once, and add keywords to keep accounts by name or bio.</dd></div>
-        <div><dt>Full history</dt><dd>See everyone it unfollowed, with links to follow them again if you change your mind.</dd></div>
-      </dl>
-    </section>
+  <section id="how">
+    <div class="wrap">
+      <p class="kicker reveal">How it works</p>
+      <h2 class="reveal">Scan. Review. Sweep.</h2>
+      <p class="sub2 reveal">Everything runs inside your own browser, on your own X account. It only ever talks to X itself.</p>
+      <div class="steps">
+        <div class="step reveal"><h3>Scan your follows</h3><p>Start from your newest or oldest follows. Pick all accounts, or only ones inactive for 3, 5 or 6+ months.</p></div>
+        <div class="step reveal"><h3>Review the list</h3><p>See every account it picked. Untick anyone you want to keep. Nothing is unfollowed until you say so.</p></div>
+        <div class="step reveal"><h3>Let it sweep</h3><p>Choose the speed, how many per hour and per day, and break length. Watch it work through the list.</p></div>
+      </div>
+    </div>
+  </section>
 
-    <section id="install">
-      <h2>Install in 5 minutes</h2>
-      <p class="sub">Pick your device. You only do this once.</p>
+  <section>
+    <div class="wrap">
+      <p class="kicker reveal">What you get</p>
+      <h2 class="reveal">Small tool, careful by design.</h2>
+      <div class="feats" style="margin-top:30px">
+        <div class="feat reveal"><h3><em>🤝</em>Keeps your mutuals</h3><p>Anyone who follows you back is skipped automatically.</p></div>
+        <div class="feat reveal"><h3><em>💤</em>Finds inactive accounts</h3><p>Checks when each account last posted, and remembers results for 7 days.</p></div>
+        <div class="feat reveal"><h3><em>⏱️</em>Your pace, your limits</h3><p>Safe to fastest speed, hourly and daily caps, and breaks between batches.</p></div>
+        <div class="feat reveal"><h3><em>🛑</em>Stops on warnings</h3><p>If X ever shows a warning, it stops by itself and waits 24 hours.</p></div>
+        <div class="feat reveal"><h3><em>📝</em>Never-unfollow list</h3><p>Protect friends by username, or keep accounts by words in their name or bio.</p></div>
+        <div class="feat reveal"><h3><em>↩️</em>Full history</h3><p>Every unfollow is logged with a link, so you can follow anyone again.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="screen reveal">
+        <div>
+          <p class="kicker" style="color:var(--teal)">Before you start</p>
+          <h2>Keep the screen on while it runs.</h2>
+          <p style="color:var(--dim);margin:0">Phones pause web pages you're not looking at. It doesn't lose anything, it just waits until you come back.</p>
+        </div>
+        <ul>
+          <li><b>iPhone</b><span>Leave Safari open on the X tab and set Auto-Lock to Never while it runs. Plug in and leave it face up.</span></li>
+          <li><b>Android</b><span>Use split screen or a pop-up window so Firefox stays visible while you use other apps.</span></li>
+          <li><b>Computer</b><span>Runs in a background tab while you do anything else. Turn off Chrome's Memory Saver for x.com.</span></li>
+          <li><b>Signing in</b><span>You only sign in to x.com itself, in the same browser. The tool never sees or asks for your password.</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="wrap">
+      <p class="kicker reveal">Install</p>
+      <h2 class="reveal">Ready in 5 minutes.</h2>
+      <p class="sub2 reveal">Pick your device. You only do this once, and updates arrive by themselves.</p>
 
       <div class="tabs" role="tablist">
         <button role="tab" aria-selected="true" data-tab="ios">iPhone</button>
@@ -180,61 +282,66 @@
       </div>
 
       <div data-panel="ios">
-        <ol class="steps">
-          <li><b>Get the Userscripts app</b><p>Free on the App Store, by Justin Wasack. Open it once and tap Set Userscripts Directory, then choose its Userscripts folder.</p></li>
-          <li><b>Switch it on in Safari</b><p>Settings, then Apps, then Safari, then Extensions, then Userscripts. Turn it on and set websites to Allow.</p></li>
-          <li><b>Install the script</b><p>In Safari, tap the button below. On the page that opens, tap the page menu (left of the address bar), then Userscripts, then Install.</p>
-            <a class="btn primary" href="x-unfollow-helper.user.js">Install script</a></li>
-          <li><b>Open your Following page</b><p>Go to x.com in Safari (not the X app), open your profile and tap Following. Tap the 🧹 button at the bottom left.</p></li>
+        <ol class="list">
+          <li><b>Get the Userscripts app</b><p>Free on the App Store, by Justin Wasack. Open it once and tap Set Userscripts Directory.</p></li>
+          <li><b>Switch it on in Safari</b><p>Settings, then Apps, then Safari, then Extensions, then Userscripts. Turn it on and allow all websites.</p></li>
+          <li><b>Install the script</b><p>Tap the button below in Safari. On the code page, tap the page menu left of the address bar, then Userscripts, then Tap to install.</p>
+            <a class="btn primary" href="/install.html?d=ios">Install script</a></li>
+          <li><b>Sweep</b><p>Open x.com in Safari (not the X app), sign in, go to your profile, tap Following, then tap 🧹.</p></li>
         </ol>
-        <p class="note">iPhone pauses web pages you're not looking at, so keep Safari open on screen while it runs. The tool keeps your screen awake, and if you leave, it continues where it stopped when you come back.</p>
       </div>
 
       <div data-panel="android" hidden>
-        <ol class="steps">
+        <ol class="list">
           <li><b>Get Firefox</b><p>Free on the Play Store. Chrome on Android can't run add-ons.</p></li>
-          <li><b>Add Tampermonkey</b><p>In Firefox, open the menu, then Extensions (Add-ons), find Tampermonkey and tap Add.</p></li>
-          <li><b>Install the script</b><p>Open this page in Firefox and tap the button below, then tap Install on the Tampermonkey page.</p>
-            <a class="btn primary" href="x-unfollow-helper.user.js">Install script</a></li>
-          <li><b>Open your Following page</b><p>Go to x.com in Firefox, open your profile and tap Following. Tap the 🧹 button at the bottom left.</p></li>
+          <li><b>Add Tampermonkey</b><p>Firefox menu, then Extensions, find Tampermonkey and tap Add.</p></li>
+          <li><b>Install the script</b><p>Tap the button below in Firefox, then Install on the Tampermonkey page.</p>
+            <a class="btn primary" href="/install.html?d=android">Install script</a></li>
+          <li><b>Sweep</b><p>Open x.com in Firefox, sign in, go to your profile, tap Following, then tap 🧹.</p></li>
         </ol>
-        <p class="note">Use split screen or a pop-up window to keep Firefox visible while you use other apps, and set Firefox's battery use to Unrestricted in your phone's settings.</p>
       </div>
 
       <div data-panel="pc" hidden>
-        <ol class="steps">
-          <li><b>Add Tampermonkey</b><p>Install it for Chrome, Edge or Firefox from your browser's extension store.</p></li>
-          <li><b>Chrome and Edge only</b><p>Open the extensions page, tap Details on Tampermonkey and turn on Allow User Scripts.</p></li>
-          <li><b>Install the script</b><p>Click the button below, then click Install on the Tampermonkey page.</p>
-            <a class="btn primary" href="x-unfollow-helper.user.js">Install script</a></li>
-          <li><b>Open your Following page</b><p>Go to x.com, open your profile and click Following. Click the 🧹 button at the bottom left.</p></li>
+        <ol class="list">
+          <li><b>Add Tampermonkey</b><p>From the extension store for Chrome, Edge or Firefox.</p></li>
+          <li><b>Chrome and Edge only</b><p>Open your extensions page, tap Details on Tampermonkey and turn on Allow User Scripts.</p></li>
+          <li><b>Install the script</b><p>Click the button below, then Install on the Tampermonkey page.</p>
+            <a class="btn primary" href="/install.html?d=pc">Install script</a></li>
+          <li><b>Sweep</b><p>Open x.com, go to your profile, click Following, then click 🧹.</p></li>
         </ol>
-        <p class="note">On a computer it keeps running in a background tab. In Chrome, turn off Memory Saver for x.com so the tab doesn't go to sleep.</p>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <section id="safety">
-      <h2>Stay safe</h2>
-      <p class="sub">X doesn't publish an official unfollow limit, so the tool is set up to go slowly.</p>
-      <ul class="rules">
-        <li><strong>≤150</strong><span>unfollows a day is the safer range. Start at 50 for the first days, especially on newer accounts.</span></li>
-        <li><strong>≈35</strong><span>an hour, in batches with random gaps and breaks, so it doesn't look automated.</span></li>
-        <li><strong>24h</strong><span>pause if X ever shows a warning. The tool stops by itself when it sees one.</span></li>
-      </ul>
-      <p class="fine">Automating actions goes against X's rules, and X decides what happens to accounts, so use it at your own risk. The tool never sees your password and only runs inside your own browser.</p>
-    </section>
+  <section>
+    <div class="wrap">
+      <p class="kicker reveal">Questions</p>
+      <h2 class="reveal">Good to know.</h2>
+      <div class="faq">
+        <details class="reveal"><summary>Does it need my X password?</summary><p>No. You sign in on x.com like normal, and the tool works inside that page. It never sees your password, and the only place it sends anything is X itself.</p></details>
+        <details class="reveal"><summary>Is it safe for my account?</summary><p>It's built to go slowly, with limits and breaks, and it stops if X shows a warning. Automation can still go against X's rules, so start with around 50 a day and raise it slowly.</p></details>
+        <details class="reveal"><summary>Why do I need to keep the screen on?</summary><p>Phones pause web pages in the background to save battery. The tool saves its place, so when you return it continues where it stopped.</p></details>
+        <details class="reveal"><summary>Does it work in the X app?</summary><p>No, it runs in the browser: Safari on iPhone, Firefox on Android, or any desktop browser with Tampermonkey.</p></details>
+        <details class="reveal"><summary>Can I undo an unfollow?</summary><p>Open Unfollow history in the panel. Every account has a link, so you can open it and follow again.</p></details>
+        <details class="reveal"><summary>Is it really free?</summary><p>Yes. There's an optional tip button if it saves you time.</p></details>
+      </div>
+    </div>
+  </section>
 
-    <section id="support">
-      <h2>Support the dev</h2>
-      <p class="sub">The tool is free. If it saved you time, a tip keeps updates coming. Send only on the matching network.</p>
+  <section id="support">
+    <div class="wrap">
+      <p class="kicker reveal">Support</p>
+      <h2 class="reveal">Tip the dev 💛</h2>
+      <p class="sub2 reveal">Optional, and very appreciated. Send only on the matching network.</p>
       <div class="coins">
-        <div class="coin"><div class="h"><strong>SOL</strong><button data-copy="7UekwDZb4Fv9x4M8bxAfQgzkwnzwvkgC3quYZAuBnsg7">Copy</button></div><code>7UekwDZb4Fv9x4M8bxAfQgzkwnzwvkgC3quYZAuBnsg7</code></div>
-        <div class="coin"><div class="h"><strong>BTC</strong><button data-copy="bc1qwe3zmgv4uj4xlvnvp7djx0qjyuzxgxwu3kv88r">Copy</button></div><code>bc1qwe3zmgv4uj4xlvnvp7djx0qjyuzxgxwu3kv88r</code></div>
-        <div class="coin"><div class="h"><strong>ETH</strong><button data-copy="0x247cb46cFE6b24e8b3ec3471e1974341C1ee7DB1">Copy</button></div><code>0x247cb46cFE6b24e8b3ec3471e1974341C1ee7DB1</code></div>
+        <div class="coin reveal"><div class="h"><strong>SOL</strong><button data-copy="7UekwDZb4Fv9x4M8bxAfQgzkwnzwvkgC3quYZAuBnsg7">Copy</button></div><code>7UekwDZb4Fv9x4M8bxAfQgzkwnzwvkgC3quYZAuBnsg7</code></div>
+        <div class="coin reveal"><div class="h"><strong>BTC</strong><button data-copy="bc1qwe3zmgv4uj4xlvnvp7djx0qjyuzxgxwu3kv88r">Copy</button></div><code>bc1qwe3zmgv4uj4xlvnvp7djx0qjyuzxgxwu3kv88r</code></div>
+        <div class="coin reveal"><div class="h"><strong>ETH</strong><button data-copy="0x247cb46cFE6b24e8b3ec3471e1974341C1ee7DB1">Copy</button></div><code>0x247cb46cFE6b24e8b3ec3471e1974341C1ee7DB1</code></div>
       </div>
-    </section>
-  </main>
-</div>
+      <p class="fine" style="margin-top:28px">Automation may go against X's rules and X decides what happens to accounts, so use it at your own discretion. The tool runs only in your own browser.</p>
+    </div>
+  </section>
+</main>
 
 <footer>
   <div class="made">Made by Redox</div>
@@ -242,29 +349,37 @@
 </footer>
 
 <script>
-  // Tabs
+  // Sticky bar border
+  const bar = document.getElementById('bar');
+  addEventListener('scroll', () => bar.classList.toggle('scrolled', scrollY > 10), { passive: true });
+
+  // Tabs, opened on the visitor's device
   const tabs = document.querySelectorAll('[data-tab]');
   tabs.forEach(t => t.addEventListener('click', () => {
     tabs.forEach(x => x.setAttribute('aria-selected', x === t));
     document.querySelectorAll('[data-panel]').forEach(p => { p.hidden = p.dataset.panel !== t.dataset.tab; });
   }));
-  // Open the right tab for the visitor's device
   const ua = navigator.userAgent;
   const pick = /iPhone|iPad|iPod/.test(ua) ? 'ios' : /Android/.test(ua) ? 'android' : 'pc';
-  const btn = document.querySelector('[data-tab="' + pick + '"]');
-  if (btn) btn.click();
+  const tb = document.querySelector('[data-tab="' + pick + '"]'); if (tb) tb.click();
 
   // Copy buttons
   document.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', async () => {
-    const text = b.dataset.copy;
     let ok = false;
-    try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {
-      const ta = document.createElement('textarea'); ta.value = text; document.body.append(ta); ta.select();
+    try { await navigator.clipboard.writeText(b.dataset.copy); ok = true; } catch (e) {
+      const ta = document.createElement('textarea'); ta.value = b.dataset.copy; document.body.append(ta); ta.select();
       try { ok = document.execCommand('copy'); } catch (_) {} ta.remove();
     }
     b.textContent = ok ? 'Copied ✓' : 'Copy failed';
     setTimeout(() => { b.textContent = 'Copy'; }, 1800);
   }));
+
+  // Fade sections in as you scroll
+  const io = 'IntersectionObserver' in window ? new IntersectionObserver(es => es.forEach(e => {
+    if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+  }), { rootMargin: '0px 0px -8% 0px' }) : null;
+  document.querySelectorAll('.reveal').forEach(el => io ? io.observe(el) : el.classList.add('in'));
 </script>
+<script defer src="/_vercel/insights/script.js"></script>
 </body>
 </html>
