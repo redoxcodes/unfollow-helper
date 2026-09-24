@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X Unfollow Helper by Redox
 // @namespace    https://x.com/amredox
-// @version      1.0.7
+// @version      1.0.8
 // @description  Paced unfollowing on X with preview, skip mutuals, whitelist, inactive filter and hourly batches.
 // @author       Redox
 // @homepageURL  https://unfollow-helper.vercel.app/
@@ -489,10 +489,40 @@
     return done || 'fail';
   }
 
+  // Unfollows by account ID, the same request X's Unfollow button sends,
+  // so it doesn't need to scroll the list to find each account.
+  let apiBroken = false;
+  async function unfollowApi(id) {
+    if (apiBroken || !id) return 'fallback';
+    let res;
+    try {
+      res = await fetch(location.origin + '/i/api/1.1/friendships/destroy.json', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          authorization: 'Bearer ' + BEARER,
+          'x-csrf-token': cookie('ct0'),
+          'x-twitter-auth-type': 'OAuth2Session',
+          'x-twitter-active-user': 'yes',
+          'content-type': 'application/x-www-form-urlencoded',
+        },
+        body: 'include_profile_interstitial_type=1&skip_status=true&user_id=' + encodeURIComponent(id),
+      });
+    } catch (e) { return 'fallback'; }
+    if (res.status === 429) return 'limit';
+    let data = null;
+    try { data = await res.json(); } catch (e) {}
+    if (res.ok && data && (data.id_str || data.screen_name)) return 'ok';
+    const codes = ((data && data.errors) || []).map(e => e.code);
+    if (codes.some(c => [88, 161, 283, 326].includes(c))) return 'limit';
+    if (codes.some(c => [34, 50, 63].includes(c))) return 'gone';
+    apiBroken = true; // use the old click method for the rest of this session
+    return 'fallback';
+  }
+
   async function run() {
     if (job) return;
     if (!S.queue.length) { setStatus('Queue is empty. Scan and approve a preview first.'); return; }
-    if (!isFollowingPage()) { S.running = true; save(); setStatus('Open your Following page and it will continue.'); render(); return; }
 
     const my = job = { stop: false, kind: 'run' };
     S.running = true;
@@ -503,7 +533,6 @@
     while (!my.stop && S.queue.length) {
       rollDay();
       const st = S.settings;
-      if (!isFollowingPage()) { setStatus('Paused: go back to your Following page to continue.'); await sleep(2000); continue; }
       if (S.pauseUntil > Date.now()) { setStatus('Paused after an X warning until ' + fmt(S.pauseUntil) + ' tomorrow.'); await sleepUntil(S.pauseUntil, my); continue; }
       if (S.day.unf >= st.dailyCap) {
         const t = new Date(); t.setHours(24, 0, 0, 0);
@@ -522,16 +551,22 @@
       }
 
       const u = S.queue[0];
-      setStatus('Finding @' + u.handle + '…');
-      const info = await locate(u.handle, my);
-      if (my.stop) break;
-      if (info && info.away) continue;
-      if (!info) { S.queue.shift(); save(); updateStats(); continue; }                 // not in list anymore
-      if (!info.following) { S.queue.shift(); save(); updateStats(); continue; }       // already unfollowed
-      if (skipReason(info)) { S.queue.shift(); save(); updateStats(); continue; }      // e.g. followed you back
+      if (parseList(st.whitelist).includes(u.handle.toLowerCase())) { S.queue.shift(); save(); updateStats(); continue; }
 
       setStatus('Unfollowing @' + u.handle + '…');
-      const r = await unfollowCell(info);
+      let r = await unfollowApi(u.id);
+      if (r === 'fallback') {
+        // Old method: find the account on the Following page and tap its button.
+        if (!isFollowingPage()) { setStatus('Paused: open your Following page to continue.'); await sleep(3000); continue; }
+        setStatus('Finding @' + u.handle + '…');
+        const info = await locate(u.handle, my);
+        if (my.stop) break;
+        if (info && info.away) continue;
+        if (!info || !info.following || skipReason(info)) { S.queue.shift(); save(); updateStats(); continue; }
+        setStatus('Unfollowing @' + u.handle + '…');
+        r = await unfollowCell(info);
+      }
+      if (r === 'gone') { S.queue.shift(); save(); updateStats(); continue; }       // account deleted or suspended
       if (r === 'limit') {
         S.pauseUntil = Date.now() + 24 * 3600e3;
         save();
@@ -890,10 +925,7 @@
 
   /* ---------- start ---------- */
   function tick() {
-    if (S.running && !job && S.queue.length && isFollowingPage() && document.visibilityState === 'visible') run();
-    else if (S.running && !job && S.queue.length && !isFollowingPage()) {
-      if (!/Following page/.test(S.status)) setStatus('Paused: open your Following page and it will continue.');
-    }
+    if (S.running && !job && S.queue.length && document.visibilityState === 'visible') run();
     updateStats();
   }
   function init() {
