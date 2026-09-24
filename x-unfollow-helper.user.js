@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X Unfollow Helper by Redox
 // @namespace    https://x.com/amredox
-// @version      1.0.6
+// @version      1.0.7
 // @description  Paced unfollowing on X with preview, skip mutuals, whitelist, inactive filter and hourly batches.
 // @author       Redox
 // @homepageURL  https://unfollow-helper.vercel.app/
@@ -34,8 +34,9 @@
     minDelaySec: 30, maxDelaySec: 60,     // wait between unfollows
     breakEveryMin: 15, breakEveryMax: 25, // take a break after this many
     breakMinMin: 10, breakMaxMin: 20,     // break length in minutes
-    dailyCheckCap: 250,                   // max activity checks per day
-    checkMinSec: 10, checkMaxSec: 20,     // wait between activity checks
+    dailyCheckCap: 1500,                  // max activity checks per day
+    checkMinSec: 10, checkMaxSec: 20,     // fallback wait if X doesn't report its limit
+    checkFloorSec: 1.5,                   // fastest allowed gap between checks
   };
   const DEFAULT_SETTINGS = {
     dailyCap: 140, hourlyCap: 35,
@@ -227,7 +228,13 @@
       }
     } catch (e) { return { error: 'Network problem during activity check. Check your connection.', fatal: true }; }
 
-    if (res.status === 429) return { error: 'X paused activity checks for now. Try again in a few hours.', fatal: true };
+    const rem = parseInt(res.headers.get('x-rate-limit-remaining'), 10);
+    const reset = parseInt(res.headers.get('x-rate-limit-reset'), 10);
+    if (!isNaN(rem) && !isNaN(reset)) { S.rl = { rem, reset: reset * 1000 }; }
+    if (res.status === 429) {
+      if (S.rl && S.rl.reset > Date.now()) return { error: 'X asked to slow down.', waitUntil: S.rl.reset + 5000 };
+      return { error: 'X paused activity checks for now. Try again in a few hours.', fatal: true };
+    }
     if (!res.ok) { S.tpl = null; save(); return { error: 'Activity check failed (' + res.status + '). Open any profile once, then scan again. If it keeps failing, use "Any account" for now.', fatal: true }; }
 
     let data;
@@ -320,6 +327,17 @@
   }
 
   /* ---------- scan and preview ---------- */
+  // Spreads the checks X still allows evenly until its limit resets.
+  function checkGap() {
+    const rl = S.rl;
+    if (rl && rl.reset > Date.now()) {
+      const left = rl.rem - 2; // keep a small safety margin
+      if (left <= 0) return rl.reset - Date.now() + 5000;
+      const even = (rl.reset - Date.now()) / left;
+      return Math.max(CFG.checkFloorSec * 1000, even) * rnd(1, 1.35);
+    }
+    return rnd(CFG.checkMinSec, CFG.checkMaxSec) * 1000;
+  }
   const prog = { phase: '', sub: '', looked: 0, possible: 0, checked: 0, found: 0, target: 0, pct: -1 };
   function setProg(p) { Object.assign(prog, p); updateLoader(); }
   async function scan() {
@@ -403,6 +421,11 @@
           S.day.checks++;
           if (!r.error) { S.act[u.id] = { last: r.last || 0, t: Date.now() }; pruneAct(); }
           save();
+          if (r.waitUntil) {
+            setProg({ sub: 'X asked for a short pause. Continuing at ' + fmt(r.waitUntil) });
+            await sleepUntil(r.waitUntil, my);
+            continue;
+          }
           if (r.error) { note = ' ' + r.error; if (r.fatal) break; continue; }
           fresh = true;
         }
@@ -411,7 +434,7 @@
           setProg({ found: picked.length, pct: Math.min(100, picked.length / o.count * 100) });
           if (picked.length >= o.count) break;
         }
-        if (fresh) await sleepUntil(Date.now() + rnd(CFG.checkMinSec, CFG.checkMaxSec) * 1000, my);
+        if (fresh) await sleepUntil(Date.now() + checkGap(), my);
       }
     }
 
@@ -689,7 +712,7 @@
     const det = prog.pct >= 0;
     ld.bar.classList.toggle('ind', !det);
     ld.fill.style.width = det ? Math.max(4, prog.pct) + '%' : '';
-    ld.hint.textContent = checking ? 'New checks take 10–20 seconds each so X stays happy. Accounts checked in the last 7 days are instant. Keep this screen open.' : 'Keep this screen open. The page scrolls by itself.';
+    ld.hint.textContent = checking ? 'Speed adjusts to what X allows, so it goes as fast as is safe. Accounts checked in the last 7 days are instant. Keep this screen open.' : 'Keep this screen open. The page scrolls by itself.';
     ld.review.classList.toggle('hidden', !(checking && prog.found > 0));
     ld.review.textContent = 'Review ' + prog.found + ' found now';
   }
